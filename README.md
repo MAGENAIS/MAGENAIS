@@ -1,156 +1,106 @@
+<p align="center">
+  <img src="branding/banner.png" alt="MAGENAIS Banner" width="100%">
+</p>
+
 # MAGENAIS
 
 ## GENAI Operating System
 
 ### Mehdi Alireza GENAI Studio
 
-> **" The Birth of Wisdom Begins Here."**
+> **The Birth of Wisdom Begins Here.**
 
-One Interface • Any AI Model • Local or Cloud
+**One Interface • Any AI Model • Any Workflow • Local or Cloud**
 
 ---
 
 ## Vision
 
-Artificial Intelligence is evolving rapidly, but today's ecosystem is fragmented.
+MAGENAIS is an open-source GENAI Operating System designed to unify modern Artificial Intelligence into one modular platform.
 
-MAGENAIS aims to become a unified Open Source GENAI Operating System where users can access every major AI capability from a single modular interface.
-
-Instead of switching between multiple applications, providers, and workflows, MAGENAIS brings them together into one intelligent platform.
+Instead of switching between multiple AI services, MAGENAIS provides one extensible interface for AI Chat, Coding, Vision, Image, Video, Music, Podcast, Agents, MCP, Workflow Automation and future AI technologies.
 
 ---
 
-## Why MAGENAIS?
-
-MAGENAIS stands for
-
-*Mehdi Alireza GENAI Studio*
-
-and represents a long-term vision to build an open ecosystem for Artificial Intelligence.
-
-The project combines research, engineering and creativity into a single platform that continuously evolves with the AI landscape.
-
----
-
-## Core Modules
+## Current Features
 
 - AI Chat
-
-- AI Coding Studio
-
-- Universal Provider Manager
-
-- Image Studio
-
-- Video Studio
-
-- Vision Studio
-
+- AI Coding
+- Vision
+- Image Generation
+- Video Generation
+- Music Generation
 - Podcast Studio
-
-- Music Studio
-
-- Research Studio
-
-- Agents
-
+- AI Agents
 - MCP
-
 - Workflow Automation
+- Universal Provider Manager
 
 ---
 
-## Design Principles
+## Project Goals
 
-• Open Source
-
-• Modular
-
-• Extensible
-
-• Provider Independent
-
-• Local First
-
-• Cloud Native
-
-• Privacy Friendly
-
-• Community Driven
+- Open Source
+- Modular Architecture
+- Provider Independent
+- Local First
+- Cloud Ready
+- Privacy First
+- Community Driven
+- Extensible Plugin System
 
 ---
 
 ## Supported Providers
 
-OpenAI
-
-Anthropic Claude
-
-Google Gemini
-
-OpenRouter
-
-Groq
-
-Ollama
-
-LM Studio
-
-GitHub Models
-
-Together AI
-
-Replicate
-
-Novita
-
-Fal.ai
-
-Cloudflare AI
-
-DeepInfra
-
-HuggingFace
-
-and many more...
+- OpenAI
+- Anthropic Claude
+- Google Gemini
+- OpenRouter
+- Ollama
+- LM Studio
+- GitHub Models
+- Together AI
+- Groq
+- HuggingFace
+- Novita
+- Replicate
+- Fal.ai
+- Cloudflare AI
+- DeepInfra
+- and many more...
 
 ---
 
 ## Roadmap
 
-V1 Foundation
+✅ Foundation
 
-Universal Provider Manager
+🔄 Universal Provider Manager 2.0
 
-Podcast Studio
+🔄 Podcast Studio 2.0
 
-Audio Studio
+⬜ AI Coding Studio
 
-Image Studio
+⬜ Vision Studio
 
-Video Studio
+⬜ Video Studio
 
-Research
+⬜ Plugin Marketplace
 
-Agents
+⬜ Workflow Engine
 
-AI Coding
-
-Vision
-
-Workflow Automation
-
-Marketplace
-
-Enterprise
+⬜ Enterprise Edition
 
 ---
 
-## Long-term Vision
+## Documentation
 
-MAGENAIS is more than an AI assistant.
-
-It is being designed as an extensible operating system for Generative Artificial Intelligence where developers, researchers, educators and creators can build the next generation of intelligent applications.
+- docs/ARCHITECTURE.md
+- docs/ROADMAP.md
+- docs/API.md
+- docs/PROVIDER_SDK.md
+- docs/PLUGIN_SDK.md
 
 ---
 
@@ -160,14 +110,14 @@ Apache License 2.0
 
 ---
 
-## Community
+## Contributing
 
 Contributions are welcome.
 
-Every idea, bug report and pull request helps improve MAGENAIS.
-
-Together we are building the future of Open Source Artificial Intelligence.
+Ideas, Issues, Discussions and Pull Requests help build the future of MAGENAIS.
 
 ---
+
+## Motto
 
 **The Birth of Wisdom Begins Here.**
