@@ -2,9 +2,9 @@
 
 ## GENAI Operating System
 
-# Mehdi Alireza GENAI Studio
+### Mehdi Alireza GENAI Studio
 
-> **The Birth of Wisdom Begins Here.**
+> **" The Birth of Wisdom Begins Here."**
 
 One Interface • Any AI Model • Local or Cloud
 
@@ -24,7 +24,7 @@ Instead of switching between multiple applications, providers, and workflows, MA
 
 MAGENAIS stands for
 
-**Mehdi Alireza GENAI Studio**
+*Mehdi Alireza GENAI Studio*
 
 and represents a long-term vision to build an open ecosystem for Artificial Intelligence.
 
