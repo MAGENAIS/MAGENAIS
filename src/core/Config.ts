@@ -4,7 +4,8 @@ export interface AppConfig {
     type: 'localStorage' | 'indexedDB' | 'memory';
     namespace: string;
   };
-  // More config will be added later (plugins, themes, etc.)
+  pluginsPath?: string;           // e.g., '/plugins'
+  remoteComputeEndpoint?: string; // optional backend URL
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -13,6 +14,8 @@ const DEFAULT_CONFIG: AppConfig = {
     type: 'localStorage',
     namespace: 'magenais',
   },
+  pluginsPath: '/plugins',
+  remoteComputeEndpoint: '',
 };
 
 export class Config {
@@ -21,7 +24,6 @@ export class Config {
   static async load(): Promise<AppConfig> {
     if (this.instance) return this.instance;
 
-    // Try to load from localStorage (or IndexedDB later)
     const stored = localStorage.getItem('magenais:config');
     if (stored) {
       try {
