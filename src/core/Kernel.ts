@@ -2,7 +2,7 @@
  * MAGENAIS Kernel
  * Core orchestrator for the application.
  * Manages boot, shutdown, plugins, configuration, and provides access to
- * core services: EventBus, Store, ProviderManager, SmartRouter, and WorkflowEngine.
+ * core services: EventBus, Store, ProviderManager, SmartRouter, WorkflowEngine, and PluginManager.
  */
 
 import { EventBus } from './EventBus';
@@ -28,6 +28,10 @@ import {
   WorkflowStore,
   BUILTIN_EXECUTORS,
 } from '../workflows';
+
+// Plugin SDK
+import { PluginManager } from '../plugins/PluginManager';
+import { PluginLoader } from '../plugins/PluginLoader';
 
 export interface KernelOptions {
   config: AppConfig;
@@ -55,6 +59,9 @@ export class Kernel {
   private workflowEngine: WorkflowEngine;
   private workflowStore: WorkflowStore;
 
+  // --- Plugin System ---
+  private pluginManager: PluginManager;
+
   constructor(options: KernelOptions) {
     // 1. Core services
     this.config = options.config;
@@ -75,19 +82,21 @@ export class Kernel {
 
     // 3. Initialise Workflow Engine
     this.workflowRegistry = new NodeRegistry();
-    // Register all built‑in node executors
     BUILTIN_EXECUTORS.forEach(exec => this.workflowRegistry.register(exec));
     this.workflowEngine = new WorkflowEngine({
       registry: this.workflowRegistry,
-      defaultTimeout: 120000,  // 2 minutes
+      defaultTimeout: 120000,
       defaultRetries: 1,
       cache: new Map(),
     });
     this.workflowStore = new WorkflowStore();
 
-    // Log initialization (optional)
+    // 4. Initialise Plugin Manager
+    this.pluginManager = new PluginManager(this.eventBus, this);
+
     this.logger.debug(
-      `Kernel initialised with ${this.providerRegistry.getAllProviders().length} providers and ${BUILTIN_EXECUTORS.length} built-in workflow node types.`
+      `Kernel initialised with ${this.providerRegistry.getAllProviders().length} providers, ` +
+      `${BUILTIN_EXECUTORS.length} built‑in workflow nodes, and plugin system ready.`
     );
   }
 
@@ -99,7 +108,7 @@ export class Kernel {
     this.providerRegistry.registerAdapter('openai', new OpenAICompatibleAdapter());
     this.providerRegistry.registerAdapter('huggingface', new HuggingFaceAdapter());
     this.providerRegistry.registerAdapter('pollinations', new PollinationsAdapter());
-    // ... register all other adapters here
+    // All other adapters can be registered here
   }
 
   // ------------------------------------------------------------------
@@ -122,6 +131,17 @@ export class Kernel {
     // 3. Emit boot event
     await this.eventBus.emit('kernel:boot');
 
+    // 4. Load and activate plugins (if configured)
+    const pluginsPath = this.config.pluginsPath || '/plugins';
+    const pluginLoader = new PluginLoader(pluginsPath);
+    try {
+      await this.pluginManager.loadAndActivatePlugins(pluginLoader);
+      this.logger.info('Plugins loaded and activated.');
+    } catch (err) {
+      this.logger.warn('Plugin loading failed, continuing without plugins.', err);
+    }
+    await this.eventBus.emit('kernel:pluginsLoaded');
+
     this.isBooted = true;
     this.logger.info('Kernel booted successfully');
   }
@@ -129,6 +149,15 @@ export class Kernel {
   async shutdown(): Promise<void> {
     if (!this.isBooted) return;
     this.logger.info('Shutting down kernel...');
+
+    // Deactivate all plugins
+    for (const plugin of this.pluginManager.getPlugins()) {
+      try {
+        await this.pluginManager.deactivatePlugin(plugin.manifest.id);
+      } catch (err) {
+        this.logger.warn(`Error deactivating plugin ${plugin.manifest.id}:`, err);
+      }
+    }
 
     this.healthMonitor.stop();
     await this.providerManager.saveProviders();
@@ -185,10 +214,17 @@ export class Kernel {
   }
 
   // ------------------------------------------------------------------
+  // Getters – Plugin System
+  // ------------------------------------------------------------------
+  getPluginManager(): PluginManager {
+    return this.pluginManager;
+  }
+
+  // ------------------------------------------------------------------
   // Plugin & DI placeholders (future phases)
   // ------------------------------------------------------------------
   registerPlugin(pluginId: string, plugin: any): void {
-    this.logger.warn('Plugin registration not yet implemented');
+    this.logger.warn('Plugin registration via kernel is deprecated; use PluginManager directly.');
   }
 
   getService<T>(serviceId: string): T {
