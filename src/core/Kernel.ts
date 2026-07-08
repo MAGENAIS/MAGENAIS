@@ -2,7 +2,8 @@
  * MAGENAIS Kernel
  * Core orchestrator for the application.
  * Manages boot, shutdown, plugins, configuration, and provides access to
- * core services: EventBus, Store, ProviderManager, SmartRouter, WorkflowEngine, and PluginManager.
+ * all subsystems: EventBus, Store, ProviderManager, SmartRouter, WorkflowEngine,
+ * PluginManager, AssetManager, and ProjectManager.
  */
 
 import { EventBus } from './EventBus';
@@ -33,6 +34,10 @@ import {
 import { PluginManager } from '../plugins/PluginManager';
 import { PluginLoader } from '../plugins/PluginLoader';
 
+// Enterprise
+import { AssetManager } from '../enterprise/AssetManager';
+import { ProjectManager } from '../enterprise/ProjectManager';
+
 export interface KernelOptions {
   config: AppConfig;
   eventBus: EventBus;
@@ -61,6 +66,10 @@ export class Kernel {
 
   // --- Plugin System ---
   private pluginManager: PluginManager;
+
+  // --- Enterprise ---
+  private assetManager: AssetManager;
+  private projectManager: ProjectManager;
 
   constructor(options: KernelOptions) {
     // 1. Core services
@@ -94,9 +103,17 @@ export class Kernel {
     // 4. Initialise Plugin Manager
     this.pluginManager = new PluginManager(this.eventBus, this);
 
+    // 5. Initialise Enterprise
+    this.assetManager = new AssetManager(this.eventBus, this.store.getPersistence());
+    this.projectManager = new ProjectManager(
+      this.eventBus,
+      this.store.getPersistence(),
+      this.assetManager
+    );
+
     this.logger.debug(
       `Kernel initialised with ${this.providerRegistry.getAllProviders().length} providers, ` +
-      `${BUILTIN_EXECUTORS.length} built‑in workflow nodes, and plugin system ready.`
+      `${BUILTIN_EXECUTORS.length} built‑in workflow nodes, plugin system, and enterprise features.`
     );
   }
 
@@ -125,13 +142,17 @@ export class Kernel {
     await this.store.load();
     await this.providerManager.loadProviders(DEFAULT_PROVIDERS);
 
-    // 2. Start health monitor
+    // 2. Load enterprise data
+    await this.assetManager.load();
+    await this.projectManager.load();
+
+    // 3. Start health monitor
     this.healthMonitor.start();
 
-    // 3. Emit boot event
+    // 4. Emit boot event
     await this.eventBus.emit('kernel:boot');
 
-    // 4. Load and activate plugins (if configured)
+    // 5. Load and activate plugins (if configured)
     const pluginsPath = this.config.pluginsPath || '/plugins';
     const pluginLoader = new PluginLoader(pluginsPath);
     try {
@@ -158,6 +179,10 @@ export class Kernel {
         this.logger.warn(`Error deactivating plugin ${plugin.manifest.id}:`, err);
       }
     }
+
+    // Save enterprise data
+    await this.assetManager.save();
+    await this.projectManager.save();
 
     this.healthMonitor.stop();
     await this.providerManager.saveProviders();
@@ -218,6 +243,17 @@ export class Kernel {
   // ------------------------------------------------------------------
   getPluginManager(): PluginManager {
     return this.pluginManager;
+  }
+
+  // ------------------------------------------------------------------
+  // Getters – Enterprise
+  // ------------------------------------------------------------------
+  getAssetManager(): AssetManager {
+    return this.assetManager;
+  }
+
+  getProjectManager(): ProjectManager {
+    return this.projectManager;
   }
 
   // ------------------------------------------------------------------
