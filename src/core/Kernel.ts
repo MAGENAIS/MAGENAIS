@@ -1,9 +1,7 @@
 /**
  * MAGENAIS Kernel
  * Core orchestrator for the application.
- * Manages boot, shutdown, plugins, configuration, and provides access to
- * all subsystems: EventBus, Store, ProviderManager, SmartRouter, WorkflowEngine,
- * PluginManager, AssetManager, and ProjectManager.
+ * Manages boot, shutdown, and provides access to all subsystems.
  */
 
 import { EventBus } from './EventBus';
@@ -38,6 +36,15 @@ import { PluginLoader } from '../plugins/PluginLoader';
 import { AssetManager } from '../enterprise/AssetManager';
 import { ProjectManager } from '../enterprise/ProjectManager';
 
+// AIOS
+import { AIMemory } from '../aios/Memory';
+import { PromptLibrary } from '../aios/PromptLibrary';
+import { AgentOrchestrator } from '../aios/Orchestrator';
+import { ModelMarketplace } from '../aios/ModelMarketplace';
+import { PluginMarketplace } from '../aios/PluginMarketplace';
+import { RemoteCompute } from '../aios/RemoteCompute';
+import { TeamManager } from '../aios/Team';
+
 export interface KernelOptions {
   config: AppConfig;
   eventBus: EventBus;
@@ -71,6 +78,15 @@ export class Kernel {
   private assetManager: AssetManager;
   private projectManager: ProjectManager;
 
+  // --- AIOS ---
+  private memory: AIMemory;
+  private promptLibrary: PromptLibrary;
+  private orchestrator: AgentOrchestrator;
+  private modelMarketplace: ModelMarketplace;
+  private pluginMarketplace: PluginMarketplace;
+  private remoteCompute: RemoteCompute;
+  private teamManager: TeamManager;
+
   constructor(options: KernelOptions) {
     // 1. Core services
     this.config = options.config;
@@ -78,7 +94,7 @@ export class Kernel {
     this.store = options.store;
     this.logger = options.logger;
 
-    // 2. Initialise Provider Platform
+    // 2. Provider Platform
     this.providerRegistry = new ProviderRegistry(this.eventBus);
     this.providerManager = new ProviderManager(
       this.providerRegistry,
@@ -89,7 +105,7 @@ export class Kernel {
     this.healthMonitor = new HealthMonitor(this.providerRegistry, this.eventBus);
     this.registerAdapters();
 
-    // 3. Initialise Workflow Engine
+    // 3. Workflow Engine
     this.workflowRegistry = new NodeRegistry();
     BUILTIN_EXECUTORS.forEach(exec => this.workflowRegistry.register(exec));
     this.workflowEngine = new WorkflowEngine({
@@ -100,10 +116,10 @@ export class Kernel {
     });
     this.workflowStore = new WorkflowStore();
 
-    // 4. Initialise Plugin Manager
+    // 4. Plugin Manager
     this.pluginManager = new PluginManager(this.eventBus, this);
 
-    // 5. Initialise Enterprise
+    // 5. Enterprise
     this.assetManager = new AssetManager(this.eventBus, this.store.getPersistence());
     this.projectManager = new ProjectManager(
       this.eventBus,
@@ -111,9 +127,17 @@ export class Kernel {
       this.assetManager
     );
 
+    // 6. AIOS
+    this.memory = new AIMemory(this.eventBus);
+    this.promptLibrary = new PromptLibrary(this.eventBus);
+    this.orchestrator = new AgentOrchestrator(this);
+    this.modelMarketplace = new ModelMarketplace(this.eventBus);
+    this.pluginMarketplace = new PluginMarketplace(this.eventBus);
+    this.remoteCompute = new RemoteCompute(this.eventBus, this.config.remoteComputeEndpoint);
+    this.teamManager = new TeamManager(this.eventBus);
+
     this.logger.debug(
-      `Kernel initialised with ${this.providerRegistry.getAllProviders().length} providers, ` +
-      `${BUILTIN_EXECUTORS.length} built‑in workflow nodes, plugin system, and enterprise features.`
+      `Kernel initialised with provider platform, workflow engine, plugin system, enterprise, and AIOS.`
     );
   }
 
@@ -125,7 +149,7 @@ export class Kernel {
     this.providerRegistry.registerAdapter('openai', new OpenAICompatibleAdapter());
     this.providerRegistry.registerAdapter('huggingface', new HuggingFaceAdapter());
     this.providerRegistry.registerAdapter('pollinations', new PollinationsAdapter());
-    // All other adapters can be registered here
+    // Additional adapters can be registered here
   }
 
   // ------------------------------------------------------------------
@@ -138,7 +162,7 @@ export class Kernel {
     }
     this.logger.info('Booting MAGENAIS kernel...');
 
-    // 1. Load persisted state (including providers)
+    // 1. Load state & providers
     await this.store.load();
     await this.providerManager.loadProviders(DEFAULT_PROVIDERS);
 
@@ -152,7 +176,7 @@ export class Kernel {
     // 4. Emit boot event
     await this.eventBus.emit('kernel:boot');
 
-    // 5. Load and activate plugins (if configured)
+    // 5. Load plugins
     const pluginsPath = this.config.pluginsPath || '/plugins';
     const pluginLoader = new PluginLoader(pluginsPath);
     try {
@@ -163,6 +187,14 @@ export class Kernel {
     }
     await this.eventBus.emit('kernel:pluginsLoaded');
 
+    // 6. Fetch marketplaces (optional, can be lazy-loaded)
+    try {
+      await this.modelMarketplace.fetchModels();
+      await this.pluginMarketplace.fetchPlugins();
+    } catch (err) {
+      this.logger.warn('Marketplace fetch failed, continuing.', err);
+    }
+
     this.isBooted = true;
     this.logger.info('Kernel booted successfully');
   }
@@ -171,7 +203,7 @@ export class Kernel {
     if (!this.isBooted) return;
     this.logger.info('Shutting down kernel...');
 
-    // Deactivate all plugins
+    // Deactivate plugins
     for (const plugin of this.pluginManager.getPlugins()) {
       try {
         await this.pluginManager.deactivatePlugin(plugin.manifest.id);
@@ -184,6 +216,9 @@ export class Kernel {
     await this.assetManager.save();
     await this.projectManager.save();
 
+    // Save memory and prompts (they auto-save, but we can force)
+    // They save on each mutation, so no explicit save needed.
+
     this.healthMonitor.stop();
     await this.providerManager.saveProviders();
     await this.store.persist();
@@ -194,16 +229,14 @@ export class Kernel {
   }
 
   // ------------------------------------------------------------------
-  // Getters – Core Services
+  // Getters – Core
   // ------------------------------------------------------------------
   getEventBus(): EventBus {
     return this.eventBus;
   }
-
   getStore(): Store {
     return this.store;
   }
-
   getConfig(): AppConfig {
     return this.config;
   }
@@ -214,11 +247,9 @@ export class Kernel {
   getProviderManager(): ProviderManager {
     return this.providerManager;
   }
-
   getRouter(): SmartRouter {
     return this.router;
   }
-
   getProviderRegistry(): ProviderRegistry {
     return this.providerRegistry;
   }
@@ -229,11 +260,9 @@ export class Kernel {
   getWorkflowRegistry(): NodeRegistry {
     return this.workflowRegistry;
   }
-
   getWorkflowEngine(): WorkflowEngine {
     return this.workflowEngine;
   }
-
   getWorkflowStore(): WorkflowStore {
     return this.workflowStore;
   }
@@ -251,18 +280,41 @@ export class Kernel {
   getAssetManager(): AssetManager {
     return this.assetManager;
   }
-
   getProjectManager(): ProjectManager {
     return this.projectManager;
   }
 
   // ------------------------------------------------------------------
-  // Plugin & DI placeholders (future phases)
+  // Getters – AIOS
+  // ------------------------------------------------------------------
+  getMemory(): AIMemory {
+    return this.memory;
+  }
+  getPromptLibrary(): PromptLibrary {
+    return this.promptLibrary;
+  }
+  getOrchestrator(): AgentOrchestrator {
+    return this.orchestrator;
+  }
+  getModelMarketplace(): ModelMarketplace {
+    return this.modelMarketplace;
+  }
+  getPluginMarketplace(): PluginMarketplace {
+    return this.pluginMarketplace;
+  }
+  getRemoteCompute(): RemoteCompute {
+    return this.remoteCompute;
+  }
+  getTeamManager(): TeamManager {
+    return this.teamManager;
+  }
+
+  // ------------------------------------------------------------------
+  // Placeholders
   // ------------------------------------------------------------------
   registerPlugin(pluginId: string, plugin: any): void {
     this.logger.warn('Plugin registration via kernel is deprecated; use PluginManager directly.');
   }
-
   getService<T>(serviceId: string): T {
     throw new Error('Service injection not yet implemented');
   }
