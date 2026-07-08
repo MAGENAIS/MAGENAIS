@@ -1,3 +1,8 @@
+/**
+ * MAGENAIS – Application Entry Point
+ * Bootstraps the Kernel, loads configuration, and mounts the UI.
+ */
+
 import { Kernel } from './core/Kernel';
 import { EventBus } from './core/EventBus';
 import { Logger } from './core/Logger';
@@ -23,15 +28,17 @@ async function bootstrap() {
   // 5. Instantiate kernel
   const kernel = new Kernel({ config, eventBus, store, logger: Logger });
 
-  // 6. Boot the kernel
+  // 6. Boot the kernel (this also loads and activates plugins)
   await kernel.boot();
 
   // 7. Mount the UI
   initUI(kernel);
 
   Logger.info('MAGENAIS UI mounted');
+  Logger.info('MAGENAIS ready.');
 }
 
 bootstrap().catch((err) => {
   console.error('Fatal bootstrap error:', err);
+  Logger.error('Application failed to start.', err);
 });
