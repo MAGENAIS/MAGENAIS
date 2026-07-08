@@ -82,9 +82,6 @@ export class App {
     this.updateStatus('Ready', 'MAGENAIS v2.1');
   }
 
-  /**
-   * Create the minimal application shell if it does not already exist in the DOM.
-   */
   private createAppShell(): HTMLElement {
     const app = document.createElement('div');
     app.id = 'app';
@@ -99,6 +96,7 @@ export class App {
           <button class="ghost-btn" id="historyBtn">History</button>
           <button class="ghost-btn" id="settingsBtn">Keys &amp; Providers</button>
           <button class="ghost-btn" id="themeBtn">🌓</button>
+          <button class="ghost-btn" id="workflowBtn">📊 Workflow</button>
         </div>
       </header>
       <nav class="modes" id="modeNav"></nav>
@@ -124,9 +122,6 @@ export class App {
     return app;
   }
 
-  /**
-   * Register all available modes.
-   */
   private registerModes(): void {
     this.modeMap.set('text', new TextMode(this.controlPanel, this.outputPanel, this.kernel));
     this.modeMap.set('image', new ImageMode(this.controlPanel, this.outputPanel, this.kernel));
@@ -140,28 +135,23 @@ export class App {
     this.modeMap.set('help', new HelpMode(this.controlPanel, this.outputPanel, this.kernel));
   }
 
-  /**
-   * Initialize the UI: build navigation, set default mode, attach global listeners.
-   */
   public init(): void {
     this.buildModeNav();
     this.setMode('text');
     this.setupGlobalListeners();
-    // Listen to kernel events to update status
+    // Listen to kernel events
     this.eventBus.on('workflow:started', () => this.updateStatus('Running...', 'Generating...'));
     this.eventBus.on('workflow:finished', () => this.updateStatus('Done', ''));
     this.eventBus.on('workflow:failed', (err) => this.updateStatus('Error: ' + err, ''));
-    // Listen to plugin events
-    this.eventBus.on('plugin:registered', (id) => Logger.info(`Plugin registered: ${id}`));
-    this.eventBus.on('plugin:activated', (id) => Logger.info(`Plugin activated: ${id}`));
+    // Plugin events
     this.eventBus.on('plugin:registerMenu', (menu) => this.handlePluginMenu(menu));
     this.eventBus.on('plugin:registerCommand', (command) => this.handlePluginCommand(command));
     this.eventBus.on('plugin:registerPanel', (panel) => this.handlePluginPanel(panel));
+    // Enterprise / AIOS events (optional)
+    this.eventBus.on('project:selected', (id) => this.updateStatus(`Project: ${id}`, ''));
+    this.eventBus.on('memory:set', ({ key }) => this.logStatus(`Memory updated: ${key}`));
   }
 
-  /**
-   * Build the mode navigation buttons.
-   */
   private buildModeNav(): void {
     if (!this.navContainer) return;
     const modes = [
@@ -187,16 +177,11 @@ export class App {
     });
   }
 
-  /**
-   * Switch to a given mode.
-   */
   private setMode(modeId: string): void {
     if (this.currentModeId === modeId) return;
-    // Deactivate current mode
     const oldMode = this.modeMap.get(this.currentModeId);
     if (oldMode) oldMode.deactivate();
 
-    // Activate new mode
     const newMode = this.modeMap.get(modeId);
     if (!newMode) {
       Logger.warn(`Mode "${modeId}" not found.`);
@@ -206,42 +191,29 @@ export class App {
     newMode.activate();
     this.outputTitle.textContent = newMode.getTitle();
 
-    // Update navigation active state
     this.navContainer.querySelectorAll('.mode-btn').forEach(btn => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === modeId);
     });
 
-    // Reset stage if switching to help mode (it shows static content)
     if (modeId === 'help') {
-      if (this.stage) {
-        this.stage.innerHTML = `
-          <div class="empty-glyph">✦</div>
-          <div class="empty-text">Read the Help notes on the left for an overview of MAGENAIS.</div>
-        `;
-      }
+      this.stage.innerHTML = `
+        <div class="empty-glyph">✦</div>
+        <div class="empty-text">Read the Help notes on the left for an overview of MAGENAIS.</div>
+      `;
     }
-
-    // Emit event
     this.eventBus.emit('ui:modeChanged', modeId);
   }
 
-  /**
-   * Setup global event listeners for buttons and other interactions.
-   */
   private setupGlobalListeners(): void {
-    // Introduction button
     const introBtn = document.getElementById('introBtn');
     if (introBtn) introBtn.addEventListener('click', () => this.showIntro());
 
-    // History button
     const historyBtn = document.getElementById('historyBtn');
     if (historyBtn) historyBtn.addEventListener('click', () => this.showHistory());
 
-    // Settings button
     const settingsBtn = document.getElementById('settingsBtn');
     if (settingsBtn) settingsBtn.addEventListener('click', () => this.showSettings());
 
-    // Theme toggle button
     const themeBtn = document.getElementById('themeBtn');
     if (themeBtn) {
       themeBtn.addEventListener('click', () => {
@@ -250,24 +222,25 @@ export class App {
       });
     }
 
-    // Click outside modals to close them (handled in modal components later)
+    const workflowBtn = document.getElementById('workflowBtn');
+    if (workflowBtn) {
+      workflowBtn.addEventListener('click', () => this.showWorkflowEditor());
+    }
   }
 
-  /**
-   * Update the status bar.
-   */
   private updateStatus(left: string, right: string): void {
     if (this.statusLeft) this.statusLeft.textContent = left;
     if (this.statusRight) this.statusRight.textContent = right || 'MAGENAIS v2.1';
+  }
+
+  private logStatus(msg: string): void {
+    // Optionally add to log panel
   }
 
   // ------------------------------------------------------------------
   // Plugin UI Integration
   // ------------------------------------------------------------------
   private handlePluginMenu(menu: { id: string; label: string; command: string }): void {
-    Logger.info(`Plugin added menu item: ${menu.label}`);
-    // Add to a plugin menu container (e.g., topbar-right, or a sidebar)
-    // For simplicity, we add a button to the topbar-right
     const topbarRight = document.querySelector('.topbar-right');
     if (topbarRight) {
       const btn = document.createElement('button');
@@ -281,26 +254,20 @@ export class App {
   }
 
   private handlePluginCommand(command: { id: string; handler: (...args: any[]) => void }): void {
-    // Register a global command listener
     this.eventBus.on(`command:${command.id}`, command.handler);
-    Logger.info(`Plugin registered command: ${command.id}`);
   }
 
   private handlePluginPanel(panel: { id: string; render: () => HTMLElement }): void {
-    // For now, we can add the panel to a specific container (e.g., output area)
-    // or create a new tab in the sidebar.
-    // We'll append it to the output panel below the stage.
     const container = document.createElement('div');
     container.id = `plugin-panel-${panel.id}`;
     container.style.padding = '10px';
     container.style.borderTop = '1px solid var(--line)';
     container.appendChild(panel.render());
     this.outputPanel.appendChild(container);
-    Logger.info(`Plugin registered panel: ${panel.id}`);
   }
 
   // ------------------------------------------------------------------
-  // Modal helpers (placeholder for now – will use the Modal component later)
+  // Modals (placeholders – can be replaced with Modal component)
   // ------------------------------------------------------------------
   private showIntro(): void {
     const modal = document.getElementById('introModal');
@@ -348,7 +315,6 @@ export class App {
           if (e.target === modal) modal.classList.remove('open');
         });
       }
-      // Trigger provider list render if the legacy function exists
       if (typeof (window as any).renderProviderList === 'function') {
         (window as any).renderProviderList();
       }
@@ -357,20 +323,22 @@ export class App {
     }
   }
 
-  /**
-   * Public methods
-   */
+  private showWorkflowEditor(): void {
+    // Placeholder – will open the WorkflowCanvas component in a modal or panel.
+    // For now, we can use a simple alert.
+    alert('Workflow Editor – will open a visual editor for workflows.');
+    // In future, we can create a modal with the WorkflowCanvas.
+  }
+
+  // ------------------------------------------------------------------
+  // Public methods
+  // ------------------------------------------------------------------
   public getCurrentMode(): string {
     return this.currentModeId;
   }
-
   public getThemeEngine(): ThemeEngine {
     return this.theme;
   }
-
-  /**
-   * Clean up resources
-   */
   public destroy(): void {
     this.modeMap.forEach(mode => mode.deactivate());
     this.eventBus.clear();
