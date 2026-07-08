@@ -1,0 +1,18 @@
+:root {
+  --bg: #0c0e0d;
+  --bg-raised: #141716;
+  --bg-panel: #181b19;
+  --line: #292e2b;
+  --line-bright: #3c433e;
+  --ink: #eaede8;
+  --ink-dim: #99a39b;
+  --ink-faint: #5b645e;
+  --amber: #e8a23d;
+  --amber-dim: #6b5430;
+  --moss: #7fae6f;
+  --rust: #c4644a;
+  --azure: #5b9bd5;
+  --mono: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+  --sans: "IBM Plex Sans", "Inter", system-ui, sans-serif;
+  --radius: 3px;
+}
