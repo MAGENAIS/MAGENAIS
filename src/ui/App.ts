@@ -1,25 +1,49 @@
+/**
+ * MAGENAIS UI Application Shell
+ * Main entry point for the user interface.
+ * Manages modes, themes, event listeners, and global UI state.
+ */
+
 import { ThemeEngine } from './Theme';
 import { EventBus } from '../core/EventBus';
 import { Store } from '../core/state/Store';
 import { Kernel } from '../core/Kernel';
+import { Logger } from '../core/Logger';
+
+// Import all mode implementations
 import { Mode } from './modes/Mode';
 import { TextMode } from './modes/TextMode';
 import { ImageMode } from './modes/ImageMode';
-// ... import all modes
+import { VideoMode } from './modes/VideoMode';
+import { AudioMode } from './modes/AudioMode';
+import { DataMode } from './modes/DataMode';
+import { DocMode } from './modes/DocMode';
+import { ResearchMode } from './modes/ResearchMode';
+import { GameMode } from './modes/GameMode';
+import { AgentsMode } from './modes/AgentsMode';
+import { HelpMode } from './modes/HelpMode';
+
+// We'll need to import the modal components later for Intro/History/Settings
+// For now we'll use simple placeholders.
 
 export class App {
   private kernel: Kernel;
   private theme: ThemeEngine;
   private eventBus: EventBus;
   private store: Store;
-  private currentMode: string = 'text';
+  private currentModeId: string = 'text';
   private modeMap: Map<string, Mode> = new Map();
 
-  // DOM refs
+  // DOM references
   private appContainer: HTMLElement;
   private controlPanel: HTMLElement;
   private outputPanel: HTMLElement;
   private outputTitle: HTMLElement;
+  private statusLeft: HTMLElement;
+  private statusRight: HTMLElement;
+  private pipelineTrace: HTMLElement;
+  private logPanel: HTMLElement;
+  private stage: HTMLElement;
 
   constructor(kernel: Kernel) {
     this.kernel = kernel;
@@ -27,18 +51,42 @@ export class App {
     this.store = kernel.getStore();
     this.theme = new ThemeEngine();
 
-    // Create app shell (if not already in DOM)
-    this.appContainer = document.getElementById('app') || this.createAppShell();
+    // Find or create the app shell
+    const existingApp = document.getElementById('app');
+    if (existingApp) {
+      this.appContainer = existingApp;
+    } else {
+      this.appContainer = this.createAppShell();
+      document.body.prepend(this.appContainer);
+    }
+
+    // Get essential DOM elements
     this.controlPanel = document.getElementById('controlPanel') as HTMLElement;
     this.outputPanel = document.querySelector('.output') as HTMLElement;
     this.outputTitle = document.getElementById('outputTitle') as HTMLElement;
+    this.statusLeft = document.getElementById('footerLeft') as HTMLElement;
+    this.statusRight = document.getElementById('footerRight') as HTMLElement;
+    this.pipelineTrace = document.getElementById('pipelineTrace') as HTMLElement;
+    this.logPanel = document.getElementById('logPanel') as HTMLElement;
+    this.stage = document.getElementById('stage') as HTMLElement;
 
-    // Register modes
+    // Register all modes
     this.registerModes();
+
+    // Set up global event listeners
+    this.setupGlobalListeners();
+
+    // Set initial theme (dark)
+    this.theme.setTheme('dark');
+
+    // Update status bar
+    this.updateStatus('Ready', 'MAGENAIS v2.1');
   }
 
+  /**
+   * Create the minimal application shell if it does not already exist in the DOM.
+   */
   private createAppShell(): HTMLElement {
-    // Minimal shell; will be built if not present
     const app = document.createElement('div');
     app.id = 'app';
     app.innerHTML = `
@@ -51,11 +99,10 @@ export class App {
           <button class="ghost-btn" id="introBtn">Introduction</button>
           <button class="ghost-btn" id="historyBtn">History</button>
           <button class="ghost-btn" id="settingsBtn">Keys &amp; Providers</button>
+          <button class="ghost-btn" id="themeBtn">🌓</button>
         </div>
       </header>
-      <nav class="modes" id="modeNav">
-        <!-- mode buttons will be generated -->
-      </nav>
+      <nav class="modes" id="modeNav"></nav>
       <main>
         <section class="control" id="controlPanel"></section>
         <section class="output">
@@ -75,28 +122,43 @@ export class App {
         <span id="footerRight">MAGENAIS v2.1</span>
       </footer>
     `;
-    document.body.prepend(app);
     return app;
   }
 
+  /**
+   * Register all available modes.
+   */
   private registerModes(): void {
-    // Instantiate each mode and store in map
     this.modeMap.set('text', new TextMode(this.controlPanel, this.outputPanel, this.kernel));
     this.modeMap.set('image', new ImageMode(this.controlPanel, this.outputPanel, this.kernel));
-    // ... register all modes
+    this.modeMap.set('video', new VideoMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('audio', new AudioMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('data', new DataMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('doc', new DocMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('research', new ResearchMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('game', new GameMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('agents', new AgentsMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('help', new HelpMode(this.controlPanel, this.outputPanel, this.kernel));
   }
 
   /**
-   * Initialize the UI: set up event listeners, render initial mode, etc.
+   * Initialize the UI: build navigation, set default mode, attach global listeners.
    */
-  init(): void {
+  public init(): void {
     this.buildModeNav();
     this.setMode('text');
     this.setupGlobalListeners();
+    // Listen to kernel events to update status
+    this.eventBus.on('workflow:started', () => this.updateStatus('Running...', 'Generating...'));
+    this.eventBus.on('workflow:finished', () => this.updateStatus('Done', ''));
+    this.eventBus.on('workflow:failed', (err) => this.updateStatus('Error: ' + err, ''));
   }
 
+  /**
+   * Build the mode navigation buttons.
+   */
   private buildModeNav(): void {
-    const nav = document.getElementById('modeNav') || document.querySelector('nav.modes');
+    const nav = document.getElementById('modeNav') as HTMLElement;
     if (!nav) return;
     const modes = [
       { id: 'text', label: 'Text & Voice', num: 1 },
@@ -121,52 +183,170 @@ export class App {
     });
   }
 
+  /**
+   * Switch to a given mode.
+   */
   private setMode(modeId: string): void {
-    this.currentMode = modeId;
-    // Update nav active state
+    if (this.currentModeId === modeId) return;
+    // Deactivate current mode
+    const oldMode = this.modeMap.get(this.currentModeId);
+    if (oldMode) oldMode.deactivate();
+
+    // Activate new mode
+    const newMode = this.modeMap.get(modeId);
+    if (!newMode) {
+      Logger.warn(`Mode "${modeId}" not found.`);
+      return;
+    }
+    this.currentModeId = modeId;
+    newMode.activate();
+    this.outputTitle.textContent = newMode.getTitle();
+
+    // Update navigation active state
     document.querySelectorAll('.mode-btn').forEach(btn => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === modeId);
     });
 
-    // Deactivate all modes, then activate the selected one
-    this.modeMap.forEach((mode, id) => {
-      if (id === modeId) {
-        mode.activate();
-        this.outputTitle.textContent = mode.getTitle();
-      } else {
-        mode.deactivate();
+    // Reset stage if switching to help mode (it shows static content)
+    if (modeId === 'help') {
+      const stage = document.getElementById('stage') as HTMLElement;
+      if (stage) {
+        stage.innerHTML = `
+          <div class="empty-glyph">✦</div>
+          <div class="empty-text">Read the Help notes on the left for an overview of MAGENAIS.</div>
+        `;
       }
-    });
+    }
 
     // Emit event
     this.eventBus.emit('ui:modeChanged', modeId);
   }
 
+  /**
+   * Setup global event listeners for buttons and other interactions.
+   */
   private setupGlobalListeners(): void {
-    // History, Settings, Introduction buttons
+    // Introduction button
     const introBtn = document.getElementById('introBtn');
     if (introBtn) introBtn.addEventListener('click', () => this.showIntro());
 
+    // History button
     const historyBtn = document.getElementById('historyBtn');
     if (historyBtn) historyBtn.addEventListener('click', () => this.showHistory());
 
+    // Settings button
     const settingsBtn = document.getElementById('settingsBtn');
     if (settingsBtn) settingsBtn.addEventListener('click', () => this.showSettings());
 
-    // Theme toggle (optional) – we can add a button in topbar
-    // For now, we'll use a keyboard shortcut or hidden toggle.
+    // Theme toggle button (if present)
+    const themeBtn = document.getElementById('themeBtn');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', () => {
+        const newTheme = this.theme.toggleTheme();
+        this.updateStatus(`Theme: ${newTheme}`, '');
+      });
+    }
+
+    // Click outside modals to close them (will be handled in modal components)
+    // For now, we'll leave it to the modal implementation.
   }
 
+  /**
+   * Update the status bar.
+   */
+  private updateStatus(left: string, right: string): void {
+    if (this.statusLeft) this.statusLeft.textContent = left;
+    if (this.statusRight) this.statusRight.textContent = right || 'MAGENAIS v2.1';
+  }
+
+  /**
+   * Show the Introduction modal.
+   */
   private showIntro(): void {
-    // Use Modal component to show intro content
-    // We'll implement a simple modal from components.
+    // We'll use a simple alert for now; in the future we'll use the Modal component.
+    // For now, we can open the existing #introModal if it exists from legacy code.
+    const modal = document.getElementById('introModal');
+    if (modal) {
+      modal.classList.add('open');
+      // Ensure close button works
+      const close = document.getElementById('closeIntro');
+      if (close) {
+        close.addEventListener('click', () => modal.classList.remove('open'));
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) modal.classList.remove('open');
+        });
+      }
+    } else {
+      alert('Introduction: MAGENAIS — Mehdi Alireza GENAI Studio\n\n' +
+        'An evolving platform for Generative Artificial Intelligence.\n' +
+        'Contact: Magenais.wisdom@gmail.com');
+    }
   }
 
+  /**
+   * Show the History modal.
+   */
   private showHistory(): void {
-    // Show history modal
+    const modal = document.getElementById('historyModal');
+    if (modal) {
+      modal.classList.add('open');
+      const close = document.getElementById('closeHistory');
+      if (close) {
+        close.addEventListener('click', () => modal.classList.remove('open'));
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) modal.classList.remove('open');
+        });
+      }
+      // TODO: populate gallery from store
+    } else {
+      alert('History: Not implemented yet in modular UI.');
+    }
   }
 
+  /**
+   * Show the Settings modal (Provider Manager).
+   */
   private showSettings(): void {
-    // Show provider manager modal
+    const modal = document.getElementById('settingsModal');
+    if (modal) {
+      modal.classList.add('open');
+      const close = document.getElementById('closeSettings');
+      if (close) {
+        close.addEventListener('click', () => modal.classList.remove('open'));
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) modal.classList.remove('open');
+        });
+      }
+      // Trigger provider list render if the legacy function exists
+      // We can call the global renderProviderList if available (legacy)
+      // For now, we'll rely on the legacy code.
+      if (typeof (window as any).renderProviderList === 'function') {
+        (window as any).renderProviderList();
+      }
+    } else {
+      alert('Settings: Provider Manager not yet available in modular UI.');
+    }
+  }
+
+  /**
+   * Public method to get the current mode.
+   */
+  public getCurrentMode(): string {
+    return this.currentModeId;
+  }
+
+  /**
+   * Public method to get the theme engine.
+   */
+  public getThemeEngine(): ThemeEngine {
+    return this.theme;
+  }
+
+  /**
+   * Clean up any resources when the app is destroyed.
+   */
+  public destroy(): void {
+    this.modeMap.forEach(mode => mode.deactivate());
+    this.eventBus.clear();
   }
 }
