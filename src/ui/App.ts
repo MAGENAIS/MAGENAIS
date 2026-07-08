@@ -23,9 +23,6 @@ import { GameMode } from './modes/GameMode';
 import { AgentsMode } from './modes/AgentsMode';
 import { HelpMode } from './modes/HelpMode';
 
-// We'll need to import the modal components later for Intro/History/Settings
-// For now we'll use simple placeholders.
-
 export class App {
   private kernel: Kernel;
   private theme: ThemeEngine;
@@ -44,6 +41,7 @@ export class App {
   private pipelineTrace: HTMLElement;
   private logPanel: HTMLElement;
   private stage: HTMLElement;
+  private navContainer: HTMLElement;
 
   constructor(kernel: Kernel) {
     this.kernel = kernel;
@@ -69,6 +67,7 @@ export class App {
     this.pipelineTrace = document.getElementById('pipelineTrace') as HTMLElement;
     this.logPanel = document.getElementById('logPanel') as HTMLElement;
     this.stage = document.getElementById('stage') as HTMLElement;
+    this.navContainer = document.getElementById('modeNav') || document.querySelector('nav.modes') as HTMLElement;
 
     // Register all modes
     this.registerModes();
@@ -152,14 +151,19 @@ export class App {
     this.eventBus.on('workflow:started', () => this.updateStatus('Running...', 'Generating...'));
     this.eventBus.on('workflow:finished', () => this.updateStatus('Done', ''));
     this.eventBus.on('workflow:failed', (err) => this.updateStatus('Error: ' + err, ''));
+    // Listen to plugin events
+    this.eventBus.on('plugin:registered', (id) => Logger.info(`Plugin registered: ${id}`));
+    this.eventBus.on('plugin:activated', (id) => Logger.info(`Plugin activated: ${id}`));
+    this.eventBus.on('plugin:registerMenu', (menu) => this.handlePluginMenu(menu));
+    this.eventBus.on('plugin:registerCommand', (command) => this.handlePluginCommand(command));
+    this.eventBus.on('plugin:registerPanel', (panel) => this.handlePluginPanel(panel));
   }
 
   /**
    * Build the mode navigation buttons.
    */
   private buildModeNav(): void {
-    const nav = document.getElementById('modeNav') as HTMLElement;
-    if (!nav) return;
+    if (!this.navContainer) return;
     const modes = [
       { id: 'text', label: 'Text & Voice', num: 1 },
       { id: 'image', label: 'Image', num: 2 },
@@ -172,14 +176,14 @@ export class App {
       { id: 'agents', label: 'Agents', num: 9 },
       { id: 'help', label: 'Help', num: 10 },
     ];
-    nav.innerHTML = '';
+    this.navContainer.innerHTML = '';
     modes.forEach(m => {
       const btn = document.createElement('button');
       btn.className = 'mode-btn';
       btn.dataset.mode = m.id;
       btn.innerHTML = `<span class="num">${m.num}</span>${m.label}`;
       btn.addEventListener('click', () => this.setMode(m.id));
-      nav.appendChild(btn);
+      this.navContainer.appendChild(btn);
     });
   }
 
@@ -203,15 +207,14 @@ export class App {
     this.outputTitle.textContent = newMode.getTitle();
 
     // Update navigation active state
-    document.querySelectorAll('.mode-btn').forEach(btn => {
+    this.navContainer.querySelectorAll('.mode-btn').forEach(btn => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === modeId);
     });
 
     // Reset stage if switching to help mode (it shows static content)
     if (modeId === 'help') {
-      const stage = document.getElementById('stage') as HTMLElement;
-      if (stage) {
-        stage.innerHTML = `
+      if (this.stage) {
+        this.stage.innerHTML = `
           <div class="empty-glyph">✦</div>
           <div class="empty-text">Read the Help notes on the left for an overview of MAGENAIS.</div>
         `;
@@ -238,7 +241,7 @@ export class App {
     const settingsBtn = document.getElementById('settingsBtn');
     if (settingsBtn) settingsBtn.addEventListener('click', () => this.showSettings());
 
-    // Theme toggle button (if present)
+    // Theme toggle button
     const themeBtn = document.getElementById('themeBtn');
     if (themeBtn) {
       themeBtn.addEventListener('click', () => {
@@ -247,8 +250,7 @@ export class App {
       });
     }
 
-    // Click outside modals to close them (will be handled in modal components)
-    // For now, we'll leave it to the modal implementation.
+    // Click outside modals to close them (handled in modal components later)
   }
 
   /**
@@ -259,16 +261,51 @@ export class App {
     if (this.statusRight) this.statusRight.textContent = right || 'MAGENAIS v2.1';
   }
 
-  /**
-   * Show the Introduction modal.
-   */
+  // ------------------------------------------------------------------
+  // Plugin UI Integration
+  // ------------------------------------------------------------------
+  private handlePluginMenu(menu: { id: string; label: string; command: string }): void {
+    Logger.info(`Plugin added menu item: ${menu.label}`);
+    // Add to a plugin menu container (e.g., topbar-right, or a sidebar)
+    // For simplicity, we add a button to the topbar-right
+    const topbarRight = document.querySelector('.topbar-right');
+    if (topbarRight) {
+      const btn = document.createElement('button');
+      btn.className = 'ghost-btn';
+      btn.textContent = menu.label;
+      btn.addEventListener('click', () => {
+        this.eventBus.emit(`command:${menu.command}`);
+      });
+      topbarRight.appendChild(btn);
+    }
+  }
+
+  private handlePluginCommand(command: { id: string; handler: (...args: any[]) => void }): void {
+    // Register a global command listener
+    this.eventBus.on(`command:${command.id}`, command.handler);
+    Logger.info(`Plugin registered command: ${command.id}`);
+  }
+
+  private handlePluginPanel(panel: { id: string; render: () => HTMLElement }): void {
+    // For now, we can add the panel to a specific container (e.g., output area)
+    // or create a new tab in the sidebar.
+    // We'll append it to the output panel below the stage.
+    const container = document.createElement('div');
+    container.id = `plugin-panel-${panel.id}`;
+    container.style.padding = '10px';
+    container.style.borderTop = '1px solid var(--line)';
+    container.appendChild(panel.render());
+    this.outputPanel.appendChild(container);
+    Logger.info(`Plugin registered panel: ${panel.id}`);
+  }
+
+  // ------------------------------------------------------------------
+  // Modal helpers (placeholder for now – will use the Modal component later)
+  // ------------------------------------------------------------------
   private showIntro(): void {
-    // We'll use a simple alert for now; in the future we'll use the Modal component.
-    // For now, we can open the existing #introModal if it exists from legacy code.
     const modal = document.getElementById('introModal');
     if (modal) {
       modal.classList.add('open');
-      // Ensure close button works
       const close = document.getElementById('closeIntro');
       if (close) {
         close.addEventListener('click', () => modal.classList.remove('open'));
@@ -283,9 +320,6 @@ export class App {
     }
   }
 
-  /**
-   * Show the History modal.
-   */
   private showHistory(): void {
     const modal = document.getElementById('historyModal');
     if (modal) {
@@ -303,9 +337,6 @@ export class App {
     }
   }
 
-  /**
-   * Show the Settings modal (Provider Manager).
-   */
   private showSettings(): void {
     const modal = document.getElementById('settingsModal');
     if (modal) {
@@ -318,8 +349,6 @@ export class App {
         });
       }
       // Trigger provider list render if the legacy function exists
-      // We can call the global renderProviderList if available (legacy)
-      // For now, we'll rely on the legacy code.
       if (typeof (window as any).renderProviderList === 'function') {
         (window as any).renderProviderList();
       }
@@ -329,21 +358,18 @@ export class App {
   }
 
   /**
-   * Public method to get the current mode.
+   * Public methods
    */
   public getCurrentMode(): string {
     return this.currentModeId;
   }
 
-  /**
-   * Public method to get the theme engine.
-   */
   public getThemeEngine(): ThemeEngine {
     return this.theme;
   }
 
   /**
-   * Clean up any resources when the app is destroyed.
+   * Clean up resources
    */
   public destroy(): void {
     this.modeMap.forEach(mode => mode.deactivate());
