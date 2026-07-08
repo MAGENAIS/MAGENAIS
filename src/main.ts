@@ -1,13 +1,10 @@
-/**
- * MAGENAIS Bootstrap
- * Initialises the Kernel and starts the application.
- */
 import { Kernel } from './core/Kernel';
 import { EventBus } from './core/EventBus';
 import { Logger } from './core/Logger';
 import { Config } from './core/Config';
 import { Store } from './core/state/Store';
 import { Persistence } from './core/state/Persistence';
+import { initUI } from './ui';
 
 async function bootstrap() {
   // 1. Load configuration
@@ -26,14 +23,13 @@ async function bootstrap() {
   // 5. Instantiate kernel
   const kernel = new Kernel({ config, eventBus, store, logger: Logger });
 
-  // 6. Register core plugins (none yet – Phase 2.3 will add providers)
-
-  // 7. Boot the kernel
+  // 6. Boot the kernel
   await kernel.boot();
 
-  // 8. Mount the UI (to be replaced by UI layer in Phase 2.5)
-  // For now, we just log success
-  Logger.info('MAGENAIS kernel booted successfully');
+  // 7. Mount the UI
+  initUI(kernel);
+
+  Logger.info('MAGENAIS UI mounted');
 }
 
 bootstrap().catch((err) => {
