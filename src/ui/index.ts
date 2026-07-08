@@ -1,15 +1,8 @@
-import { App } from './App';
-import { Kernel } from '../core/Kernel';
-
-let appInstance: App | null = null;
-
-export function initUI(kernel: Kernel): void {
-  if (!appInstance) {
-    appInstance = new App(kernel);
-    appInstance.init();
-  }
-}
-
-export function getApp(): App | null {
-  return appInstance;
-}
+export { App } from './App';
+export { ThemeEngine } from './Theme';
+export * from './components/Component';
+export * from './components/Button';
+export * from './components/ChipGroup';
+export * from './components/Dropzone';
+export * from './components/Modal';
+export * from './modes/Mode';
