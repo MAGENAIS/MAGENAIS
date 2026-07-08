@@ -9,7 +9,7 @@ import { Logger } from './core/Logger';
 import { Config } from './core/Config';
 import { Store } from './core/state/Store';
 import { Persistence } from './core/state/Persistence';
-import { initUI } from './ui';
+import { App } from './ui/App';
 
 async function bootstrap() {
   // 1. Load configuration
@@ -28,14 +28,18 @@ async function bootstrap() {
   // 5. Instantiate kernel
   const kernel = new Kernel({ config, eventBus, store, logger: Logger });
 
-  // 6. Boot the kernel (this also loads and activates plugins)
+  // 6. Boot the kernel
   await kernel.boot();
 
   // 7. Mount the UI
-  initUI(kernel);
+  const app = new App(kernel);
+  app.init();
 
-  Logger.info('MAGENAIS UI mounted');
-  Logger.info('MAGENAIS ready.');
+  // 8. Expose kernel to window for debugging (optional)
+  (window as any).__MAGENAIS_KERNEL = kernel;
+  (window as any).__MAGENAIS_APP = app;
+
+  Logger.info('MAGENAIS UI mounted and ready.');
 }
 
 bootstrap().catch((err) => {
