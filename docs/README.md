@@ -10,7 +10,6 @@
 
 [Vision](VISION.md) •
 [Architecture](architecture/ARCHITECTURE.md) •
-[Documentation](docs/) •
 [Roadmap](ROADMAP.md)
 
 </div>
