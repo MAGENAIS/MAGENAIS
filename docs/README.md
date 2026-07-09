@@ -11,7 +11,7 @@
 [Vision](VISION.md) •
 [Architecture](architecture/ARCHITECTURE.md) •
 [Documentation](docs/) •
-[Roadmap](docs/ROADMAP.md)
+[Roadmap](ROADMAP.md)
 
 </div>
 
