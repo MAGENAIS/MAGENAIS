@@ -1,546 +1,265 @@
 # MIGRATION.md
 
-# MAGENAIS Migration Strategy
-
-> From a single HTML prototype to a modular AI Operating System without breaking existing functionality.
-
----
-
-# Philosophy
-
-MAGENAIS was intentionally started as a browser-first single-file application.
-
-This approach enabled:
-
-- rapid experimentation
-- zero installation
-- GitHub Pages deployment
-- fast feature validation
-- easy contribution
-
-As the project grows into a complete AI Operating System supporting hundreds of providers, workflows, plugins, and studios, the architecture must evolve while preserving the existing user experience.
-
-The migration strategy is therefore **incremental rather than revolutionary**.
-
-No successful feature should be discarded.
-
-Every feature should become a reusable module.
+> **Evolution without disruption.**  
+> MAGENAIS is designed to evolve continuously while preserving stability, compatibility, and developer trust. This document defines the migration philosophy and long-term strategy for architectural evolution across future versions of the platform.
 
 ---
 
-# Migration Principles
+# Migration Philosophy
 
-The migration follows several fundamental rules.
+Software platforms should evolve without forcing users or developers to repeatedly rebuild their projects.
 
-## 1. Never Break Existing Features
+MAGENAIS follows a **progressive migration strategy**, allowing new capabilities to be introduced while maintaining a stable and predictable development experience.
 
-Every migration phase must maintain compatibility with previous functionality.
+The platform prioritizes:
 
-Users should not notice architectural changes.
+- Backward compatibility whenever technically possible
+- Incremental architectural improvements
+- Stable public APIs
+- Versioned extension contracts
+- Predictable release cycles
+- Minimal breaking changes
 
----
-
-## 2. Small Safe Refactors
-
-Avoid rewriting everything simultaneously.
-
-Each subsystem becomes independent one step at a time.
-
----
-
-## 3. Browser First
-
-The browser remains the primary runtime.
-
-No server dependency should become mandatory.
-
-GitHub Pages deployment must always remain possible.
+Migration is considered an architectural discipline rather than a one-time engineering task.
 
 ---
 
-## 4. Modular Architecture
+# Core Principles
 
-Large files become small reusable modules.
+## Stability First
 
-Every component should have a single responsibility.
+Every architectural improvement should preserve existing workflows whenever possible.
 
----
-
-## 5. Progressive Enhancement
-
-The application should continuously improve while remaining usable throughout the migration.
+Breaking changes are considered the last option, never the default.
 
 ---
 
-# Current Architecture
+## Evolution over Replacement
 
-Current implementation consists primarily of:
+Instead of replacing major subsystems, MAGENAIS evolves them through:
 
-- Single HTML application
-- Embedded JavaScript
-- Embedded CSS
-- Direct provider calls
-- Shared global state
-- UI and business logic mixed together
+- new interfaces
+- adapters
+- compatibility layers
+- feature flags
+- deprecation windows
 
-This structure enabled rapid prototyping but limits scalability.
+This allows applications to continue operating while adopting newer capabilities.
 
 ---
 
-# Target Architecture
+## Semantic Versioning
 
-The destination architecture introduces clear system layers.
+MAGENAIS follows Semantic Versioning.
 
 ```
-Presentation Layer
-
-↓
-
-Studios
-
-↓
-
-Kernel Services
-
-↓
-
-Runtime
-
-↓
-
-Providers
-
-↓
-
-Browser APIs
+MAJOR.MINOR.PATCH
 ```
 
-Each layer has well-defined responsibilities.
+### Major
+
+Breaking architectural changes.
+
+### Minor
+
+New features with backward compatibility.
+
+### Patch
+
+Bug fixes, security improvements and performance optimizations.
 
 ---
 
-# Migration Phases
+# Compatibility Policy
 
-## Phase 1 — Stabilization
+MAGENAIS maintains compatibility across multiple layers.
 
-Objectives:
+- Project files
+- Workflow definitions
+- Extensions
+- Provider integrations
+- User settings
+- Stored assets
+- Configuration files
+- Public APIs
 
-- freeze existing behavior
-- remove critical bugs
-- document architecture
-- establish coding standards
-
-Deliverables:
-
-- documentation
-- linting
-- formatting
-- testing baseline
+Compatibility is a first-class design goal throughout the platform lifecycle.
 
 ---
 
-## Phase 2 — Modularization
+# Deprecation Strategy
 
-Extract independent modules from the monolithic application.
+Features are never removed abruptly.
+
+The lifecycle follows four stages:
+
+1. Active
+2. Deprecated
+3. Legacy Support
+4. Removed
+
+Deprecated features continue functioning during the announced support window while providing clear migration guidance.
+
+---
+
+# API Evolution
+
+Public APIs evolve through versioning rather than replacement.
 
 Examples:
 
-- Config
-- Utilities
-- Storage
-- Logger
-- Event Bus
-- State Manager
-
-No visible UI changes occur during this phase.
-
----
-
-## Phase 2.5 — Runtime Foundation
-
-Introduce the application runtime.
-
-Components:
-
-- Kernel
-- Service Container
-- Dependency Injection
-- Lifecycle Manager
-
-The runtime begins orchestrating application startup.
-
----
-
-## Phase 3 — Core Services
-
-Move business logic into dedicated services.
-
-Including:
-
-- Provider Registry
-- Smart Router
-- Workflow Engine
-- Plugin Manager
-- Asset Manager
-- Project Manager
-
-UI becomes a consumer of services rather than containing business logic.
-
----
-
-## Phase 3.5 — Studios
-
-Introduce modular workspaces.
-
-Examples:
-
-- Chat Studio
-- Image Studio
-- Audio Studio
-- Video Studio
-- Workflow Studio
-
-Studios become independent applications sharing common infrastructure.
-
----
-
-## Phase 4 — Plugin Ecosystem
-
-Enable third-party extensibility.
-
-New capabilities include:
-
-- install plugins
-- remove plugins
-- provider packages
-- workflow packages
-- UI extensions
-- themes
-
-The platform becomes community-driven.
-
----
-
-# Legacy Compatibility
-
-Existing functionality is preserved through compatibility adapters.
-
-Examples include:
-
-- legacy configuration mapping
-- legacy storage adapters
-- legacy provider wrappers
-- legacy workflow conversion
-
-These adapters allow gradual migration without forcing immediate changes.
-
----
-
-# File Migration Strategy
-
-Large files are divided into focused modules.
-
-Example:
-
 ```
-Old
-
-index.html
-    ↓
-
-New
-
-main.ts
-
-Kernel
-
-Runtime
-
-State Manager
-
-Event Bus
-
-Provider Registry
-
-Router
-
-Workflow Engine
-
-UI Components
-
-Studios
+api/v1/
+api/v2/
 ```
 
-Each extraction should be independently testable.
+Older API versions remain supported for an appropriate transition period.
 
 ---
 
-# UI Migration
+# Extension Compatibility
 
-The interface migrates gradually.
+Extensions are isolated from internal implementation details through stable SDK interfaces.
 
-Step 1
+As the platform evolves:
 
-Separate styles.
+- SDK contracts remain stable
+- Deprecated APIs generate warnings
+- Compatibility adapters may be provided
+- Extensions declare supported SDK versions
 
-Step 2
-
-Separate reusable components.
-
-Step 3
-
-Introduce layout system.
-
-Step 4
-
-Studio architecture.
-
-Step 5
-
-Plugin-based UI extensions.
+This minimizes maintenance effort for extension developers.
 
 ---
 
-# State Migration
+# Provider Compatibility
 
-Global variables become centralized state.
+AI providers evolve rapidly.
 
-Evolution:
+MAGENAIS separates provider implementations from provider interfaces.
 
-```
-Global Variables
+This abstraction allows providers to:
 
-↓
+- change endpoints
+- add capabilities
+- introduce new models
+- modify authentication methods
 
-Shared Objects
-
-↓
-
-State Manager
-
-↓
-
-Reactive Stores
-
-↓
-
-Immutable State
-
-↓
-
-Time Travel Debugging
-```
+without impacting the rest of the platform.
 
 ---
 
-# Provider Migration
+# Configuration Evolution
 
-Current provider implementations become provider adapters.
+Configuration formats may expand over time while preserving existing fields.
 
-Eventually every provider implements the same interface.
+Migration utilities may:
 
-```
-Provider
+- add missing defaults
+- rename obsolete fields
+- validate schemas
+- preserve unknown properties for forward compatibility
 
-↓
+---
 
-Capability Discovery
+# Data Migration
 
-↓
+Persistent data should remain usable across versions whenever possible.
 
-Health Monitoring
+Migration routines may include:
 
-↓
+- schema upgrades
+- index rebuilding
+- metadata normalization
+- storage optimization
+- cache regeneration
 
-Cost Metadata
-
-↓
-
-Latency Statistics
-
-↓
-
-Automatic Routing
-```
+Data migrations should be deterministic, reversible where feasible, and fully validated.
 
 ---
 
 # Workflow Migration
 
-Linear execution evolves into graph execution.
+Workflow definitions are treated as durable project assets.
 
-Old:
+When execution models evolve:
 
-```
-Prompt
-
-↓
-
-Provider
-
-↓
-
-Response
-```
-
-New:
-
-```
-Graph
-
-↓
-
-Nodes
-
-↓
-
-Edges
-
-↓
-
-Conditions
-
-↓
-
-Parallel Tasks
-
-↓
-
-Result
-```
+- legacy nodes remain supported
+- deprecated nodes receive replacements
+- automatic upgrade paths may be provided
+- validation reports identify required updates
 
 ---
 
-# Storage Migration
+# Project Compatibility
 
-Storage evolves without losing user data.
+Projects created in previous versions should continue to load successfully whenever feasible.
 
-Progression:
-
-```
-localStorage
-
-↓
-
-IndexedDB
-
-↓
-
-Cache API
-
-↓
-
-Optional Cloud Sync
-```
-
-Automatic migration utilities convert existing user data.
+Project metadata includes version information to enable compatibility checks and migration assistance.
 
 ---
 
-# Plugin Migration
+# Feature Flags
 
-Features originally embedded inside the application gradually become plugins.
+Experimental capabilities may be introduced behind feature flags.
 
 Benefits include:
 
-- independent updates
-- optional installation
-- community development
-- isolated execution
+- safer rollout
+- community testing
+- gradual adoption
+- simplified rollback
+- reduced upgrade risk
 
 ---
 
-# Documentation Migration
+# Migration Validation
 
-Documentation evolves together with the codebase.
+Each migration should be validated through automated testing, including:
 
-Each completed subsystem receives:
-
-- architecture document
-- API reference
-- developer guide
-- examples
-- diagrams
-
-Documentation is treated as a core deliverable.
+- project loading
+- workflow execution
+- extension compatibility
+- provider integration
+- configuration integrity
+- storage consistency
+- regression testing
 
 ---
 
-# Testing During Migration
+# Documentation
 
-Each migration step introduces new automated tests.
+Every significant platform evolution should include:
 
-Testing expands in parallel with architecture.
+- migration notes
+- release highlights
+- updated API references
+- SDK changes
+- compatibility information
+- upgrade recommendations
 
-Coverage includes:
-
-- unit tests
-- integration tests
-- UI tests
-- workflow tests
-- provider tests
-- performance benchmarks
-
-Migration is considered complete only when all existing functionality remains verified.
+Clear documentation is essential for predictable adoption.
 
 ---
 
-# Risks
+# Long-Term Support
 
-Potential migration risks include:
+Selected releases may receive extended maintenance to support organizations requiring long-term platform stability.
 
-- hidden coupling
-- duplicated logic
-- state inconsistencies
-- plugin incompatibility
-- provider API changes
-- browser compatibility issues
-- performance regressions
+These releases prioritize:
 
-Each phase includes validation before proceeding.
+- security updates
+- bug fixes
+- critical compatibility improvements
+
+while avoiding disruptive feature changes.
 
 ---
 
-# Success Criteria
+# Guiding Vision
 
-Migration is considered successful when:
+Migration is not merely the process of moving from one version to another.
 
-- existing functionality continues to work
-- architecture becomes modular
-- providers are independently installable
-- plugins can extend the platform safely
-- workflows support graph execution
-- studios operate independently
-- documentation remains synchronized
-- automated testing validates every subsystem
-- GitHub Pages deployment remains supported
-- browser-first philosophy is preserved
+It is the mechanism that allows MAGENAIS to grow from a lightweight browser-first AI platform into a long-lived, extensible operating system for artificial intelligence—without sacrificing reliability, openness, or developer confidence.
 
----
-
-# Long-Term Evolution
-
-Migration does not end with version 1.0.
-
-The architecture is designed to evolve continuously.
-
-Future directions include:
-
-- distributed execution
-- collaborative workspaces
-- AI-assisted development
-- marketplace ecosystem
-- cloud synchronization
-- offline-first capabilities
-- multi-device experiences
-- enterprise deployments
-- native desktop packaging
-- mobile optimization
-
----
-
-# Final Goal
-
-The purpose of migration is not merely to reorganize source code.
-
-It is to transform MAGENAIS into a sustainable, extensible, browser-first AI Operating System capable of supporting hundreds of AI providers, thousands of workflows, a vibrant plugin ecosystem, and a global open-source community—while preserving the simplicity, accessibility, and openness that defined the project's first prototype.
+Every release should make the platform more capable while preserving the investments made by its community.
