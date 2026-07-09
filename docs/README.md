@@ -9,7 +9,7 @@
 ---
 
 [Vision](VISION.md) •
-[Architecture](docs/architecture/ARCHITECTURE.md) •
+[Architecture](architecture/ARCHITECTURE.md) •
 [Documentation](docs/) •
 [Roadmap](docs/ROADMAP.md)
 
