@@ -20,7 +20,9 @@ Unlike traditional AI applications that focus on a single model or service, MAGE
 
 MAGENAIS is the name of the project representing a 
 **Modular AI Generation and Intelligence System**.
+
 **Founder: Mehdi Alireza GENAI Studio**
+
 **Linguistic and Philosophy: 
 The Birth of Wisdom**
 
