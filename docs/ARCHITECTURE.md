@@ -1,310 +1,331 @@
-
 # MAGENAIS Architecture
 
-**Version:** 2.1.0  
-**License:** Apache License 2.0  
-**Repository:** https://github.com/your-username/magenais
+> **Version:** 2.2 (Living Architecture)
+>
+> **Status:** Active
+>
+> **Audience:** Contributors, Plugin Developers, Provider Developers, Core Maintainers, AI Researchers
+>
+> This document defines the architectural foundation of MAGENAIS. It serves as the single source of truth for the design, implementation, evolution, and governance of the platform.
 
 ---
 
-## 1. Design Principles
+# Table of Contents
 
-| Principle | Description |
-|-----------|-------------|
-| **Browser First** | No server required; all logic executes in the browser. |
-| **Plugin First** | The core never changes; all new features are added as plugins. |
-| **Provider Agnostic** | No dependency on any specific AI provider. |
-| **Offline Ready** | Works with Service Workers and caching where possible. |
-| **GitHub Pages Ready** | Deployable as a static site. |
-| **Progressive Enhancement** | Optional backend adds features like remote compute and cloud sync. |
-
----
-
-## 2. Architecture Layers
-
-```
-
-┌─────────────────────────────────────────────────────────┐
-│                     APPLICATION                         │
-│                   src/main.ts                           │
-└───────────────────────────┬─────────────────────────────┘
-│
-┌───────────────────────────▼─────────────────────────────┐
-│                         UI LAYER                        │
-│                     src/ui/                             │
-│              App · Theme · Components · Modes           │
-└───────────────────────────┬─────────────────────────────┘
-│
-┌───────────────────────────▼─────────────────────────────┐
-│                      WORKFLOW LAYER                     │
-│                   src/workflows/                        │
-│           Graph Engine · Nodes · Executors              │
-└───────────────────────────┬─────────────────────────────┘
-│
-┌───────────────────────────▼─────────────────────────────┐
-│                      PROVIDER LAYER                     │
-│                   src/providers/                        │
-│         Registry · Router · Health · Adapters           │
-└───────────────────────────┬─────────────────────────────┘
-│
-┌───────────────────────────▼─────────────────────────────┐
-│                         KERNEL                          │
-│                   src/core/Kernel.ts                    │
-│   Boot · Shutdown · Config · EventBus · State           │
-└───────────────────────────┬─────────────────────────────┘
-│
-┌───────────────────────────▼─────────────────────────────┐
-│                       BROWSER APIs                      │
-│   DOM · localStorage · IndexedDB · Web Audio · Media    │
-└─────────────────────────────────────────────────────────┘
-
-```
-
-All modules communicate via a central **Event Bus** – no module calls another directly.
+1. Introduction
+2. Vision
+3. Architecture Principles
+4. System Goals
+5. Design Philosophy
+6. High-Level Architecture
+7. Architectural Layers
+8. Core Kernel
+9. Runtime
+10. Event Bus
+11. State Manager
+12. Storage Manager
+13. Provider Registry
+14. Smart Provider Router
+15. Workflow Engine
+16. Plugin System
+17. Extension API
+18. Studio Architecture
+19. Project & Asset Management
+20. Security Architecture
+21. Performance Strategy
+22. Scalability
+23. Deployment Architecture
+24. Migration Strategy
+25. Future Evolution
 
 ---
 
-## 3. Core Modules
+# Introduction
 
-### 3.1 Kernel (`src/core/Kernel.ts`)
+MAGENAIS is not a chatbot.
 
-The Kernel is the single orchestrator. It:
+It is not a prompt interface.
 
-- Boots and shuts down the application.
-- Provides getters for all subsystems.
-- Loads configuration and providers.
-- Handles plugin loading.
+It is not simply another AI web application.
 
-```typescript
-// Example usage
-const kernel = new Kernel(options);
-await kernel.boot();
+MAGENAIS is designed as a **Browser-First Artificial Intelligence Operating System**—a modular platform that unifies AI models, providers, workflows, plugins, assets, and projects into a cohesive development environment.
 
-const providerManager = kernel.getProviderManager();
-const workflowEngine = kernel.getWorkflowEngine();
-const pluginManager = kernel.getPluginManager();
-// ... and many more getters
-```
+The architecture is inspired by modern extensible platforms such as:
 
-3.2 Event Bus (src/core/EventBus.ts)
+- Visual Studio Code
+- ComfyUI
+- Langflow
+- OpenWebUI
+- Blender
+- Figma
+- Obsidian
+- Kubernetes
+- Electron
 
-A typed event emitter.
-
-```typescript
-// Listen
-eventBus.on('workflow:started', (workflowId) => {
-  console.log(`Workflow ${workflowId} started`);
-});
-
-// Emit
-eventBus.emit('asset:created', asset);
-```
-
-Common Events:
-
-Event Payload
-kernel:boot –
-kernel:shutdown –
-provider:registered providerId
-workflow:started workflowId
-workflow:finished workflowId
-workflow:failed { workflowId, error }
-asset:created Asset
-project:selected projectId
-plugin:activated pluginId
-ui:modeChanged modeId
-
-3.3 State Manager (src/core/state/)
-
-Component Responsibility
-Store Central state container.
-Actions Dispatch actions to modify state.
-Reducers Pure functions that update state.
-Selectors Read state.
-Persistence Pluggable storage (localStorage, IndexedDB, memory).
-
-```typescript
-store.dispatch({ type: 'SET_THEME', payload: 'light' });
-const theme = store.selectors.getTheme();
-```
+while remaining lightweight enough to run entirely inside a modern web browser.
 
 ---
 
-4. Provider Platform (src/providers/)
+# Vision
 
-Component Responsibility
-Registry Stores provider configurations and adapters.
-Manager Loads/saves provider configs, merges with defaults.
-Router Scores providers and selects the best for each request.
-HealthMonitor Periodically tests providers and updates health status.
-Adapters Each provider has an adapter implementing its API logic.
+The long-term vision of MAGENAIS is to become a universal operating environment for Artificial Intelligence.
 
-Providers are defined as plain objects and can be added/removed at runtime.
+Instead of requiring users to switch between dozens of AI services, MAGENAIS provides a unified platform where providers, workflows, and tools coexist behind a consistent interface.
 
----
+Every AI capability becomes a modular component.
 
-5. Workflow Engine (src/workflows/)
+Every workflow becomes reusable.
 
-Component Responsibility
-Graph Nodes and edges define the workflow.
-Nodes Each node has a type, config, inputs, and outputs.
-Executors Built‑in executors for text, image, video, etc.
-Engine Executes graphs with parallel execution, retries, timeouts, and caching.
-WorkflowStore In‑memory store for workflow definitions.
+Every provider becomes interchangeable.
+
+Every extension can expand the platform without modifying the core.
 
 ---
 
-6. UI Architecture (src/ui/)
+# Core Philosophy
 
-Component Responsibility
-App Main shell, mode switching, theme, status bar.
-ThemeEngine CSS variable‑based theming (dark/light).
-Components Reusable UI blocks (Button, ChipGroup, Dropzone, Modal).
-Modes Each mode (Text, Image, Video, etc.) renders its control panel and handles generation.
-WorkflowCanvas Basic visual node editor for workflows.
+The architecture is guided by one fundamental principle:
 
----
+> **The Core Never Knows the Details.**
 
-7. Plugin SDK (src/plugins/)
+The Kernel defines contracts.
 
-Component Responsibility
-PluginLoader Discovers and loads plugins from a known directory.
-PluginManager Manages plugin lifecycle, permissions, and activation.
-PluginAPI Restricted API granted to plugins based on requested permissions.
+Modules implement contracts.
 
-Permissions
+Providers implement contracts.
 
-Permission Description
-storage:read Read from plugin storage.
-storage:write Write to plugin storage.
-network:fetch Make network requests.
-provider:register Register new providers.
-workflow:register Register new workflow nodes.
-ui:menu Add menu items.
-ui:panel Add panels.
-ui:command Register commands.
-agent:register Register new agents.
-model:register Register new models (future).
+Plugins implement contracts.
+
+Everything communicates through abstractions rather than concrete implementations.
+
+This enables continuous evolution without destabilizing the platform.
 
 ---
 
-8. Enterprise Features (src/enterprise/)
+# Architecture Principles
 
-Component Responsibility
-AssetManager Stores and retrieves assets with metadata.
-ProjectManager Creates projects, associates assets, tracks versions, exports/imports.
+## Browser First
 
----
+MAGENAIS is designed to execute entirely within the browser whenever possible.
 
-9. AI Operating System (src/aios/)
+The browser is treated as the primary runtime—not a limited fallback.
 
-Component Responsibility
-Memory Key‑value store with TTL and tags.
-PromptLibrary Manage reusable prompts with tags, categories, favourites.
-AgentOrchestrator Run multiple agents (workflows, LLMs, research) in sequence or parallel.
-ModelMarketplace Fetch and list models from a remote registry.
-PluginMarketplace Fetch and list plugins from a remote registry.
-RemoteCompute Offload tasks to a backend (stub).
-TeamManager User/role and project sharing (stub).
+Capabilities include:
 
----
+- Local storage
+- IndexedDB
+- Web Workers
+- WebAssembly
+- Streaming APIs
+- File System Access API
+- Media APIs
+- Canvas/WebGL
+- Service Workers
 
-10. Data Flow
-
-```
-User clicks "Generate"
-    │
-    ▼
-UI Mode (e.g., TextMode)
-    │
-    ▼
-Event `workflow:started`
-    │
-    ▼
-Workflow Engine
-    │
-    ▼
-Smart Router → selects best provider
-    │
-    ▼
-Provider Adapter → API call
-    │
-    ▼
-Result → saved to AssetManager → displayed in UI
-```
-
-All steps are decoupled and asynchronous, enabling parallel execution and real‑time updates.
+No backend is required for the core experience.
 
 ---
 
-11. Security
+## Extensibility First
 
-Aspect Implementation
-API Keys Stored in localStorage (plain text – planned encryption with WebCrypto).
-Plugins Sandboxed by permission checks – no eval or arbitrary code execution.
-CSP Can be enabled via meta tags.
-XSS Input sanitisation (escapeHtml) used throughout the UI.
+Every major subsystem is designed as an extension point.
 
----
+Examples include:
 
-12. Performance
+- AI Providers
+- Plugins
+- Workflows
+- UI Panels
+- Commands
+- Themes
+- Studios
+- Exporters
+- Importers
+- Asset Types
 
-Technique Application
-Code Splitting Vite splits the bundle.
-Lazy Loading Modes and plugins are loaded on demand.
-Web Workers Planned for OCR, PDF parsing, audio stitching.
-Caching Workflow results are cached; providers are health‑checked to avoid slow ones.
-Virtual Lists For large history/gallery views.
-
----
-
-13. Future Roadmap
-
-· Full‑featured Visual Workflow Editor (using a library like @xyflow/react).
-· Multi‑Agent Orchestrator with branching and conditionals.
-· AI Memory with decay and retrieval strategies.
-· Remote Compute integration with a real backend.
-· Team Collaboration with authentication and real‑time sync.
-· Plugin and Model Marketplaces with online registries.
+The platform grows through composition rather than modification.
 
 ---
 
-14. Project Structure
+## Provider Agnostic
 
-```
-src/
-├── core/           # Kernel, EventBus, Logger, Config, State
-├── providers/      # Provider registry, adapters, router, health
-├── workflows/      # Graph engine, nodes, executors
-├── ui/             # App shell, theme, components, modes
-├── plugins/        # Plugin loader, manager, API
-├── enterprise/     # Asset and Project management
-├── aios/           # AIOS: Memory, Prompt Library, Orchestrator, Marketplaces
-└── css/            # Theme variables and styles
+MAGENAIS does not depend on any specific AI provider.
+
+OpenAI is not privileged.
+
+Claude is not privileged.
+
+Gemini is not privileged.
+
+Every provider implements the same capability interfaces, allowing seamless replacement or combination.
+
+---
+
+## Workflow Native
+
+Automation is a core capability.
+
+Workflows are treated as first-class entities rather than optional features.
+
+Every operation can become part of a reusable workflow graph.
+
+---
+
+## Event Driven
+
+Subsystems never communicate directly.
+
+Instead, they publish and subscribe to events through the Event Bus.
+
+This minimizes coupling and simplifies extensibility.
+
+---
+
+## Offline Capable
+
+Core functionality remains available without network connectivity.
+
+Projects, assets, workflows, prompts, and settings are stored locally and synchronized only when requested.
+
+---
+
+## Progressive Enhancement
+
+MAGENAIS adapts to the execution environment.
+
+Basic browsers receive the essential experience.
+
+Modern browsers unlock advanced capabilities such as GPU acceleration, streaming, and local AI execution.
+
+---
+
+# System Goals
+
+The architecture is designed to support:
+
+- 200+ AI Providers
+- 100+ Plugins
+- Unlimited Projects
+- Large Asset Libraries
+- Complex Workflow Graphs
+- Browser Deployment
+- GitHub Pages Hosting
+- Future Desktop Packaging
+- Mobile Compatibility
+- Collaborative Features
+
+without requiring architectural redesign.
+
+---
+
+# High-Level Architecture
+
+```text
+                         +----------------------+
+                         |      User Interface  |
+                         +----------+-----------+
+                                    |
+                                    ▼
+                          +----------------------+
+                          |        Kernel        |
+                          +----------+-----------+
+                                     |
+         +---------------------------+---------------------------+
+         |                           |                           |
+         ▼                           ▼                           ▼
+ +---------------+         +----------------+         +------------------+
+ |   Event Bus   |         |  State Manager |         | Storage Manager  |
+ +---------------+         +----------------+         +------------------+
+         |                           |                           |
+         +-------------+-------------+-------------+-------------+
+                       |                           |
+                       ▼                           ▼
+              +------------------+       +----------------------+
+              | Provider Registry|       |  Workflow Engine     |
+              +--------+---------+       +----------+-----------+
+                       |                            |
+                       ▼                            ▼
+              +------------------+       +----------------------+
+              | Smart Router     |       | Plugin Runtime       |
+              +--------+---------+       +----------+-----------+
+                       |                            |
+        +--------------+--------------+             |
+        |              |              |             |
+        ▼              ▼              ▼             ▼
+   OpenAI          Claude         Gemini      Community Plugins
+   Ollama         DeepSeek       Mistral      Extensions
 ```
 
 ---
 
-15. License
+# Architectural Layers
 
+The system is organized into independent layers.
+
+```text
+Presentation Layer
+
+↓
+
+Application Layer
+
+↓
+
+Kernel Layer
+
+↓
+
+Runtime Layer
+
+↓
+
+Infrastructure Layer
+
+↓
+
+Provider Layer
+
+↓
+
+Storage Layer
 ```
-Copyright 2024 Mehdi Alireza / MAGENAIS
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Each layer communicates only through stable interfaces.
 
-    http://www.apache.org/licenses/LICENSE-2.0
+No layer depends directly on implementation details of lower layers.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
+This separation ensures maintainability, testability, and long-term scalability.
 
 ---
 
-End of Architecture Document
+# Design Characteristics
 
-```
+The architecture emphasizes:
+
+- Loose Coupling
+- High Cohesion
+- Dependency Injection
+- Event-Driven Communication
+- Lazy Loading
+- Dynamic Module Resolution
+- Capability-Based APIs
+- Immutable State
+- Predictable Data Flow
+- Progressive Enhancement
+- Plugin Isolation
+- Provider Independence
+- Browser Performance
+- Security by Default
+- Future-Proof Extensibility
+
+---
+
+> **Architecture Rule #1:** The Kernel owns the platform, but knows nothing about providers or plugins.
+
+> **Architecture Rule #2:** Every feature is replaceable.
+
+> **Architecture Rule #3:** Every module communicates through contracts.
+
+> **Architecture Rule #4:** The browser is the primary operating environment.
+
+> **Architecture Rule #5:** Extensibility always takes precedence over short-term convenience.
