@@ -8,7 +8,7 @@
 
 ---
 
-[Vision](docs/VISION.md) •
+[Vision](VISION.md) •
 [Architecture](docs/architecture/ARCHITECTURE.md) •
 [Documentation](docs/) •
 [Roadmap](docs/ROADMAP.md)
