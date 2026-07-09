@@ -1,147 +1,120 @@
-# EVENT BUS
+# EVENT_BUS.md
 
-> The Nervous System of MAGENAIS
+> **The Nervous System of MAGENAIS**
+>
+> Event Bus is the communication backbone of MAGENAIS.
+> Every subsystem—including the Kernel, Runtime, Providers, Plugins,
+> Studios, Workflow Engine, UI Components, Asset Manager,
+> Project Manager, and Extensions—communicates exclusively through
+> the Event Bus.
 
 ---
 
 # Philosophy
 
-MAGENAIS is built around an Event-Driven Architecture.
+Traditional web applications become increasingly coupled as they grow.
 
-Nothing communicates directly.
+Component A imports Component B.
 
-Everything communicates through Events.
+Component B imports Component C.
 
-Instead of:
+Plugins directly call internal APIs.
 
-UI → Provider
+Providers manipulate application state.
 
-MAGENAIS uses:
+Eventually every module depends on every other module.
 
-UI
- ↓
-Event Bus
- ↓
+The result is:
+
+• impossible testing
+
+• circular dependencies
+
+• difficult maintenance
+
+• poor scalability
+
+• fragile architecture
+
+MAGENAIS intentionally avoids this architecture.
+
+Instead, every subsystem communicates by publishing and subscribing
+to events.
+
+No module should directly know the implementation details of another.
+
+Instead they know only:
+
+> "Something happened."
+
+This principle enables a browser-first AI Operating System where
+hundreds of independent modules can evolve without breaking each other.
+
+---
+
+# Design Principles
+
+The Event Bus is designed around several principles.
+
+## Loose Coupling
+
+Modules never directly depend on one another.
+
+Instead:
+
 Kernel
- ↓
-Router
- ↓
-Provider
- ↓
-Storage
- ↓
-UI
+↓
 
-This creates:
+Event Bus
+↓
 
-- Loose coupling
-- Extensibility
-- Plugin compatibility
-- Hot swapping
-- Time travel debugging
-- Offline replay
+Interested Components
 
 ---
 
-# Goals
+## Browser Native
 
-The Event Bus must provide
+The implementation is optimized for modern browsers.
 
-✓ Decoupled communication
+No external message broker is required.
 
-✓ Async execution
+No server dependency exists.
 
-✓ Priority scheduling
-
-✓ Broadcast messaging
-
-✓ Scoped messaging
-
-✓ Event replay
-
-✓ Event history
-
-✓ Debug inspection
-
-✓ Plugin isolation
-
-✓ Browser-first implementation
+Everything works completely offline.
 
 ---
 
-# Architecture
+## Type Safety
 
-                 UI
+Every event has a defined schema.
 
-                  │
+Examples:
 
-          publish(Event)
+ProviderLoaded
 
-                  │
+WorkflowStarted
 
-          ┌───────────────┐
-          │   Event Bus   │
-          └───────────────┘
+ProjectOpened
 
-      │         │        │
+ModelDownloaded
 
-      ▼         ▼        ▼
+PluginInstalled
 
-   Kernel    Plugins   Studios
+AssetImported
 
-      │
+PromptExecuted
 
-      ▼
+UIThemeChanged
 
-Workflow Engine
-
-      │
-
-      ▼
-
- Smart Router
-
-      │
-
-      ▼
-
- Providers
-
- ---
-
-# Event Model
-
-Every event follows exactly the same schema.
-
-interface MAGEvent {
-
-id:string
-
-type:string
-
-timestamp:number
-
-source:string
-
-target?:string
-
-payload:any
-
-metadata?:Record<string,any>
-
-priority?:number
-
-cancelable?:boolean
-
-version:number
-
-}
+Unknown events should never silently propagate.
 
 ---
 
-# Event Lifecycle
+## Predictable
 
-Event Created
+Every event follows exactly the same lifecycle.
+
+Publish
 
 ↓
 
@@ -150,10 +123,6 @@ Validation
 ↓
 
 Middleware
-
-↓
-
-Priority Queue
 
 ↓
 
@@ -161,364 +130,378 @@ Subscribers
 
 ↓
 
-Execution
+Completion
 
 ↓
 
 Logging
 
-↓
+---
 
-Persistence
+## Observable
 
-↓
+Every event may be inspected.
 
-Replay Cache
+Developer Tools can display:
+
+Current Event
+
+Execution Time
+
+Subscribers
+
+Publisher
+
+Errors
+
+Propagation Chain
+
+This greatly simplifies debugging.
 
 ---
 
-# Core Event Categories
+# High-Level Architecture
 
-## Kernel
+```
 
-kernel:init
+                    +----------------------+
+                    |     Kernel           |
+                    +----------+-----------+
+                               |
+                               |
+                    publish()
+                               |
+                 +-------------v-------------+
+                 |       Event Bus           |
+                 +-------------+-------------+
+                               |
+      +-----------+------------+-------------+-----------+
+      |           |            |             |           |
+      |           |            |             |           |
++-----v----+ +----v-----+ +----v-----+ +-----v----+ +----v-----+
+| Runtime  | | Providers| | Plugins  | | Studios  | | Workflow |
++----------+ +----------+ +----------+ +----------+ +----------+
 
-kernel:ready
+```
 
-kernel:shutdown
-
-kernel:error
-
-kernel:warning
-
-kernel:update
-
----
-
-## UI
-
-ui:click
-
-ui:open
-
-ui:close
-
-ui:resize
-
-ui:theme
-
-ui:notification
+Everything communicates through this single abstraction.
 
 ---
 
-## Project
+# Core Responsibilities
 
-project:create
+The Event Bus is responsible for:
 
-project:open
+• Event publishing
 
-project:save
+• Event subscription
 
-project:export
+• Event routing
 
-project:close
+• Event validation
 
----
+• Event logging
 
-## Asset
+• Event replay
 
-asset:add
+• Event filtering
 
-asset:update
+• Middleware execution
 
-asset:delete
+• Priority scheduling
 
-asset:index
+• Error isolation
 
-asset:import
+• Performance monitoring
 
-asset:export
-
----
-
-## Provider
-
-provider:connect
-
-provider:disconnect
-
-provider:health
-
-provider:latency
-
-provider:cost
-
-provider:error
-
-provider:response
+• Debug inspection
 
 ---
 
-## Workflow
+# Event Lifecycle
 
-workflow:start
+Every event follows a deterministic lifecycle.
 
-workflow:pause
+```
 
-workflow:resume
-
-workflow:cancel
-
-workflow:complete
-
-workflow:error
-
-workflow:progress
-
----
-
-## Plugin
-
-plugin:install
-
-plugin:enable
-
-plugin:disable
-
-plugin:uninstall
-
-plugin:error
-
-plugin:update
-
----
-
-## AI
-
-ai:chat
-
-ai:image
-
-ai:video
-
-ai:audio
-
-ai:embedding
-
-ai:reasoning
-
-ai:tool
-
-ai:stream
-
----
-
-## System
-
-storage:save
-
-storage:load
-
-settings:update
-
-cache:clear
-
-telemetry:event
-
-analytics:event
-
----
-
-# Event Priorities
-
-Priority 0
-
-Emergency
-
-Priority 1
-
-Kernel
-
-Priority 2
-
-Workflow
-
-Priority 3
-
-Provider
-
-Priority 4
-
-UI
-
-Priority 5
-
-Plugins
-
-Priority 6
-
-Analytics
-
----
-
-# Middleware Pipeline
-
-Incoming Event
+Publisher
 
 ↓
 
-Validation
+Create Event
 
 ↓
 
-Authorization
+Validate Schema
 
 ↓
 
-Plugin Hooks
+Apply Middleware
 
 ↓
 
-Metrics
-
-↓
-
-Logging
+Priority Queue
 
 ↓
 
 Dispatch
 
-Each middleware may:
+↓
 
-Continue
-
-Modify
-
-Cancel
-
-Retry
-
----
-
-# Subscription Model
-
-Subscribers may register using:
-
-Exact Event
-
-Wildcard
-
-Namespaces
-
-Examples
-
-ui:*
-
-provider:*
-
-workflow:*
-
-*
-
----
-
-# Replay System
-
-Every event can optionally be persisted.
-
-Benefits
-
-Undo
-
-Redo
-
-Debugging
-
-Workflow replay
-
-Offline synchronization
-
-Crash recovery
-
-
-```markdown
----
-
-# Plugin Integration
-
-Plugins never call each other directly.
-
-Plugin A
+Subscribers Execute
 
 ↓
 
-publish()
+Results Collected
 
 ↓
 
-Event Bus
+Logger
 
 ↓
-
-Plugin B
-
-This guarantees complete isolation.
-
----
-
-# Performance Targets
-
-Publish latency
-
-< 1 ms
-
-1000 events/sec
-
-Browser memory
-
-< 20 MB
-
-Replay history
-
-Configurable
-
-Async dispatch
-
-Yes
-
----
-
-# Future Roadmap
-
-Phase 2.2
-
-Basic Event Bus
-
-Phase 2.5
-
-Priority Queue
-
-Phase 3.0
-
-Middleware
-
-Replay
 
 Metrics
 
-Phase 3.5
+↓
 
-Distributed Event Channels
+Complete
 
-Phase 4.0
+```
 
-Cross-tab synchronization
-
-Shared Workers
-
-Remote Events
+No component bypasses this pipeline.
 
 ---
 
-> The Event Bus is the nervous system of MAGENAIS. Every component, provider, workflow, and plugin communicates through events, enabling a scalable, decoupled, browser-first AI Operating System.
+# Event Structure
+
+Every event contains standardized metadata.
+
+```ts
+interface Event {
+
+id:string;
+
+type:string;
+
+timestamp:number;
+
+source:string;
+
+target?:string;
+
+priority:number;
+
+payload:any;
+
+metadata:{
+
+version:string;
+
+sessionId:string;
+
+projectId?:string;
+
+userId?:string;
+
+traceId:string;
+
+};
+
+}
+```
+
+This structure allows:
+
+• tracing
+
+• replay
+
+• debugging
+
+• persistence
+
+• distributed synchronization
+
+---
+
+# Event Categories
+
+MAGENAIS defines several event domains.
+
+## Kernel Events
+
+KernelReady
+
+KernelShutdown
+
+KernelRestart
+
+KernelError
+
+RuntimeInitialized
+
+ConfigurationLoaded
+
+---
+
+## Provider Events
+
+ProviderRegistered
+
+ProviderRemoved
+
+ProviderEnabled
+
+ProviderDisabled
+
+ProviderHealthUpdated
+
+ProviderQuotaExceeded
+
+ProviderLatencyMeasured
+
+ProviderAuthenticationFailed
+
+ProviderCapabilitiesUpdated
+
+---
+
+## Workflow Events
+
+WorkflowCreated
+
+WorkflowStarted
+
+WorkflowPaused
+
+WorkflowResumed
+
+WorkflowCancelled
+
+WorkflowCompleted
+
+WorkflowFailed
+
+NodeStarted
+
+NodeCompleted
+
+NodeError
+
+EdgeExecuted
+
+---
+
+## Project Events
+
+ProjectCreated
+
+ProjectOpened
+
+ProjectSaved
+
+ProjectClosed
+
+ProjectExported
+
+ProjectImported
+
+---
+
+## Asset Events
+
+AssetImported
+
+AssetDeleted
+
+AssetIndexed
+
+AssetUpdated
+
+AssetGenerated
+
+AssetCached
+
+ThumbnailGenerated
+
+---
+
+## Plugin Events
+
+PluginInstalled
+
+PluginUpdated
+
+PluginEnabled
+
+PluginDisabled
+
+PluginRemoved
+
+PluginLoaded
+
+PluginUnloaded
+
+PluginError
+
+---
+
+## Studio Events
+
+ChatStarted
+
+ImageGenerationStarted
+
+MusicGenerationStarted
+
+VideoGenerationStarted
+
+CodeExecutionStarted
+
+PodcastGenerated
+
+DocumentAnalyzed
+
+TranslationCompleted
+
+---
+
+## UI Events
+
+SidebarOpened
+
+SidebarClosed
+
+ThemeChanged
+
+LanguageChanged
+
+WorkspaceChanged
+
+NotificationCreated
+
+DialogOpened
+
+CommandExecuted
+
+ShortcutPressed
+
+---
+
+## Storage Events
+
+DatabaseReady
+
+CacheHit
+
+CacheMiss
+
+CacheCleared
+
+IndexedDBReady
+
+LocalStorageUpdated
+
+CloudSyncStarted
+
+CloudSyncCompleted
