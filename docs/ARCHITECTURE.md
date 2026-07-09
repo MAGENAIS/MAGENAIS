@@ -308,7 +308,3 @@ limitations under the License.
 End of Architecture Document
 
 ```
-
----
-
-This Markdown file is ready to be placed in the `docs/` folder of your repository. It provides a comprehensive, readable overview of the MAGENAIS architecture for contributors, users, and future maintainers.
