@@ -18,7 +18,7 @@ Unlike traditional AI applications that focus on a single model or service, MAGE
 
 ## What does MAGENAIS stand for?
 
-MAGENAIS is the name of the project representing a **Modular AI Generation and Intelligence System**.
+MAGENAIS is the name of the project representing a **Modular AI Generation and Intelligence System**.(Founder: Mehdi Alireza GENAI Studio)(Linguistic and Philosophy: The Birth of Wisdom)
 
 More importantly, it represents the vision of an extensible AI Operating System rather than a single AI application.
 
