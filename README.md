@@ -1715,21 +1715,26 @@ Every Pull Request should aim to leave the codebase cleaner than it was before.
 
 # License
 
-MAGENAIS is released under the MIT License.
+MAGENAIS is released under the **Apache License 2.0**.
 
-You are free to:
+This license allows you to:
 
-- use
-- modify
-- distribute
-- study
-- contribute
+- Use the software for personal and commercial purposes
+- Modify the source code
+- Distribute original or modified versions
+- Build proprietary applications on top of MAGENAIS
+- Create plugins, providers, and extensions
+- Contribute improvements back to the community
 
-Commercial use is permitted under the terms of the MIT License.
+Apache 2.0 also provides an explicit patent grant from contributors, making it a strong choice for large-scale open-source AI infrastructure.
 
-See the LICENSE file for complete details.
+Unless required by applicable law or agreed to in writing, software distributed under the License is provided on an **"AS IS" BASIS**, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
----
+See the **LICENSE** file for the complete license text.
+
+Licensed under the Apache License, Version 2.0.
+
+Copyright © 2026 MAGENAIS Contributors.
 
 # Acknowledgments
 
@@ -1782,14 +1787,6 @@ It has become one of the world's most capable application platforms.
 MAGENAIS is built on the belief that the future of AI computing belongs to open, browser-first, extensible systems.
 
 ---
-
-## Build Once.
-
-## Extend Forever.
-
-## The Browser is the AI Operating System.
-
-**Welcome to MAGENAIS.**
 
 # Architecture at a Glance
 
