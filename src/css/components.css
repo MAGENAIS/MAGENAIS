@@ -176,6 +176,22 @@ input[type=range]{ flex:1; accent-color: var(--amber); }
   line-height:1;
 }
 
+/* Keys & Providers */
+.key-row{ display:flex; flex-direction:column; gap:5px; }
+.key-row .key-label{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); display:flex; justify-content:space-between; }
+.key-row .key-label .opt{ color: var(--ink-faint); font-style:italic; text-transform:none; letter-spacing:0; }
+.key-status{ font-size:10px; }
+.key-status.set{ color: var(--moss); }
+.key-status.unset{ color: var(--ink-faint); }
+.provider-row{
+  border:1px solid var(--line-bright); border-radius: var(--radius); padding:9px 11px;
+  display:flex; flex-direction:column; gap:6px; background: var(--bg);
+}
+.provider-row .provider-row-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.provider-row .provider-name{ font-family:var(--mono); font-size:12px; }
+.provider-row .provider-meta{ font-size:10px; color:var(--ink-faint); }
+.provider-row input[type=password], .provider-row input[type=text]{ font-size:12px; padding:7px 9px; }
+
 /* Toast */
 .toast {
   position:fixed;
