@@ -5,6 +5,7 @@
  */
 
 import { ThemeEngine } from './Theme';
+import { SettingsModal } from './SettingsModal';
 import { EventBus } from '../core/EventBus';
 import { Store } from '../core/state/Store';
 import { Kernel } from '../core/Kernel';
@@ -42,12 +43,14 @@ export class App {
   private logPanel: HTMLElement;
   private stage: HTMLElement;
   private navContainer: HTMLElement;
+  private settingsModal: SettingsModal;
 
   constructor(kernel: Kernel) {
     this.kernel = kernel;
     this.eventBus = kernel.getEventBus();
     this.store = kernel.getStore();
     this.theme = new ThemeEngine();
+    this.settingsModal = new SettingsModal(kernel);
 
     // Find or create the app shell
     const existingApp = document.getElementById('app');
@@ -92,7 +95,7 @@ export class App {
       <header class="topbar">
         <div class="brand">
           <div class="mark">MAGENAI<span>S</span></div>
-          <div class="tag">Mehdi Alireza GENAI Studio · Birth of Wisdom</div>
+          <div class="tag">GENAI OPERATING SYSTEM · Birth of Wisdom</div>
         </div>
         <div class="topbar-right">
           <button class="ghost-btn" id="introBtn">Introduction</button>
@@ -307,22 +310,7 @@ export class App {
   }
 
   private showSettings(): void {
-    const modal = document.getElementById('settingsModal');
-    if (modal) {
-      modal.classList.add('open');
-      const close = document.getElementById('closeSettings');
-      if (close) {
-        close.addEventListener('click', () => modal.classList.remove('open'));
-        modal.addEventListener('click', (e) => {
-          if (e.target === modal) modal.classList.remove('open');
-        });
-      }
-      if (typeof (window as any).renderProviderList === 'function') {
-        (window as any).renderProviderList();
-      }
-    } else {
-      alert('Settings: Provider Manager not yet available in modular UI.');
-    }
+    this.settingsModal.open();
   }
 
   private showWorkflowEditor(): void {
