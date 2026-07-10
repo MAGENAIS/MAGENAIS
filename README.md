@@ -10,11 +10,11 @@ MAGENAIS
 GENAI Operating System
 </h3>
 
-<p align="center">
+<h4 align="center">
 
 Build Once • Connect Everything • Own Your AI Workspace
 
-</p>
+</h4>
 
 ---
 
