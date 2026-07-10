@@ -50,13 +50,16 @@ export class App {
     this.theme = new ThemeEngine();
 
     // Find or create the app shell
-    const existingApp = document.getElementById('app');
-    if (existingApp) {
-      this.appContainer = existingApp;
-    } else {
-      this.appContainer = this.createAppShell();
-      document.body.prepend(this.appContainer);
-    }
+    const existingApp = document.getElementById("app");
+
+if (existingApp) {
+    existingApp.innerHTML = "";
+    this.appContainer = existingApp;
+    this.appContainer.innerHTML = this.createAppShell().innerHTML;
+} else {
+    this.appContainer = this.createAppShell();
+    document.body.prepend(this.appContainer);
+}
 
     // Get essential DOM elements
     this.controlPanel = document.getElementById('controlPanel') as HTMLElement;
