@@ -1,0 +1,27 @@
+{
+  "id": "example-summarize-and-narrate",
+  "name": "Summarize a document, then narrate it",
+  "graph": {
+    "nodes": [
+      {
+        "id": "doc1",
+        "type": "doc",
+        "label": "Extract & Summarize",
+        "config": { "action": "summary" },
+        "inputs": { "file": { "ref": "input.file" } },
+        "enabled": true
+      },
+      {
+        "id": "speech1",
+        "type": "speech",
+        "label": "Narrate Summary",
+        "config": { "voice": "alloy" },
+        "inputs": { "text": { "ref": "doc1.summary" } },
+        "enabled": true
+      }
+    ],
+    "edges": [
+      { "from": "doc1", "to": "speech1" }
+    ]
+  }
+}
