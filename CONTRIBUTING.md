@@ -1,307 +1,561 @@
-# Contributing
+# MAGENAIS Storage Manager
 
-> Building the future of the MAGENAIS AI Operating System together.
-
----
-
-# Welcome
-
-Thank you for your interest in contributing to MAGENAIS.
-
-MAGENAIS is an open, GENAI Operating System designed to unify AI providers, creative tools, intelligent workflows, multimodal generation, automation, and future AI capabilities within a single extensible platform.
-
-Every contribution—whether code, documentation, design, testing, research, or ideas—helps move the project closer to its long-term vision.
-
-We believe that great software is built by an open community with a shared commitment to quality, collaboration, and continuous improvement.
+> Unified Persistent Storage Architecture for the GENAI Operating System
 
 ---
 
-# Our Vision
+# Overview
 
-MAGENAIS is more than another AI application.
+The Storage Manager is responsible for all persistent data within MAGENAIS.
 
-It is an attempt to build an intelligent operating environment where users can create, learn, develop, research, automate, and collaborate using AI through a consistent and extensible architecture.
+It provides a unified abstraction layer over browser storage technologies,
+allowing every subsystem to save, retrieve, synchronize, migrate, and manage data
+without depending on a specific storage implementation.
 
-The project is guided by several long-term principles:
+The Storage Manager acts as the persistent memory of the AI Operating System.
+
+It enables MAGENAIS to function entirely inside the browser while remaining scalable,
+offline-capable, secure, and extensible.
+
+---
+
+# Philosophy
+
+MAGENAIS follows one fundamental storage principle:
+
+> Components never access browser storage directly.
+
+Instead, every read and write operation passes through the Storage Manager.
+
+```
+Application
+
+↓
+
+Runtime
+
+↓
+
+State Manager
+
+↓
+
+Storage Manager
+
+↓
+
+Storage Drivers
+```
+
+This architecture guarantees consistency, security, portability, and future compatibility.
+
+---
+
+# Design Goals
+
+The Storage Manager is designed around the following principles:
 
 - Browser First
-- Open Architecture
-- Provider Independence
-- Extensibility
-- Simplicity
-- Accessibility
-- Performance
-- Security
-- Long-Term Maintainability
-
-Every contribution should strengthen these principles.
-
----
-
-# Who Can Contribute
-
-Everyone is welcome.
-
-Contributions may include:
-
-- Source Code
-- Documentation
-- Architecture
-- User Experience
-- Accessibility
-- Testing
-- Performance
-- Security
-- Bug Reports
-- Feature Requests
-- Examples
-- Tutorials
-- Translations
-- Community Support
-
-You do not need to be an AI expert to make meaningful contributions.
+- Storage Agnostic
+- Offline Ready
+- Secure by Default
+- High Performance
+- Event Driven
+- Versioned Storage
+- Extensible Drivers
+- Automatic Migration
+- Plugin Compatible
 
 ---
 
-# Contribution Philosophy
+# Responsibilities
 
-We value thoughtful engineering over rapid implementation.
+The Storage Manager manages:
 
-Before adding new functionality, contributors are encouraged to ask:
-
-- Does this improve the architecture?
-- Is it reusable?
-- Is it modular?
-- Will it remain maintainable?
-- Does it simplify the platform?
-- Is it consistent with existing design principles?
-
-Architecture should always take precedence over short-term convenience.
-
----
-
-# Before You Start
-
-Before contributing, please become familiar with:
-
-- Project Vision
-- Architecture
-- Design Principles
-- Development Guidelines
-- Coding Standards
-- Documentation Structure
-
-Understanding the project's long-term goals helps ensure that contributions integrate naturally with the existing platform.
+- Projects
+- Assets
+- Conversations
+- Workflows
+- User Settings
+- Provider Configurations
+- Plugin Data
+- Extensions
+- Cache
+- Runtime Snapshots
+- Session Recovery
+- History
+- Logs
 
 ---
 
-# Ways to Contribute
+# Architecture
 
-There are many ways to contribute.
+```
+Application
+
+        │
+
+        ▼
+
+State Manager
+
+        │
+
+        ▼
+
+Storage Manager
+
+        │
+
+        ├───────────────┐
+
+        ▼               ▼
+
+Storage Drivers     Cache Layer
+
+        │               │
+
+        ▼               ▼
+
+IndexedDB      LocalStorage
+
+File System API
+
+Cloud Storage
+
+Remote Providers
+```
+
+The Storage Manager hides storage implementation details from the application.
+
+---
+
+# Storage Layers
+
+The storage architecture consists of multiple independent layers.
+
+```
+Application Layer
+
+↓
+
+Storage Manager
+
+↓
+
+Storage Driver
+
+↓
+
+Browser Storage
+
+↓
+
+Physical Storage
+```
+
+Each layer has a single responsibility.
+
+---
+
+# Storage Drivers
+
+Drivers provide access to different storage backends.
+
+Supported drivers include:
+
+- IndexedDB
+- LocalStorage
+- Cache Storage
+- File System Access API
+- Memory Storage
+- Remote Storage
+- GitHub Repository Storage
+- Cloud Synchronization
+
+Additional drivers may be added without modifying the Runtime.
+
+---
+
+# IndexedDB
+
+IndexedDB is the primary persistent storage.
+
+It stores:
+
+- Projects
+- Assets
+- Conversations
+- Workflow Graphs
+- Provider Metadata
+- Models
+- Plugin Data
+
+Large datasets are stored efficiently.
+
+---
+
+# Local Storage
+
+Local Storage stores lightweight information.
 
 Examples include:
 
-### Platform Development
+- Theme
+- Language
+- Window Layout
+- User Preferences
+- Recent Projects
+- Feature Flags
 
-Improve core platform services including:
-
-- Kernel
-- Runtime
-- Event Bus
-- State Manager
-- Storage Manager
-- Workflow Engine
-- Project Manager
-- Asset Manager
-- Provider Registry
-- Smart Router
+Critical data is never stored exclusively in Local Storage.
 
 ---
 
-### AI Providers
+# Cache Storage
 
-Help improve compatibility with AI providers by contributing:
+Cache Storage improves performance by storing:
 
-- provider integrations
-- capability definitions
-- routing improvements
-- provider documentation
-- performance optimization
+- Provider Responses
+- Generated Thumbnails
+- Icons
+- Plugin Packages
+- Static Assets
+- Temporary Downloads
 
-The platform is intentionally provider independent.
-
----
-
-### Plugins and Extensions
-
-Create reusable extensions that enhance the ecosystem.
-
-Possible contributions include:
-
-- Studio extensions
-- Workflow nodes
-- UI components
-- Commands
-- Utilities
-- Importers
-- Exporters
-- Templates
-- Themes
-
-Extensions should integrate through public APIs rather than modifying the core platform.
+The cache can be cleared without affecting user data.
 
 ---
 
-### Documentation
+# File System Access API
 
-Excellent documentation is as valuable as excellent code.
+When supported, MAGENAIS can access local project folders.
 
-Documentation contributions may include:
+This enables:
 
-- tutorials
-- architecture improvements
-- examples
-- API documentation
-- diagrams
-- migration guides
-- workflow examples
+- Direct project editing
+- Asset import/export
+- Workflow files
+- Prompt libraries
+- Dataset management
 
-Documentation should evolve together with the platform.
+Projects remain synchronized with the local filesystem.
 
 ---
 
-### User Experience
+# Project Storage
 
-MAGENAIS aims to provide a modern, intuitive interface.
+Projects are stored as independent entities.
 
-UX contributions may include:
+Each project contains:
 
-- interface improvements
-- accessibility enhancements
-- layout refinements
-- interaction design
-- usability research
+- Metadata
+- Assets
+- Workflows
+- History
+- Settings
+- References
+- Runtime Configuration
 
-Simple experiences are often the most difficult to design.
-
----
-
-### Testing
-
-Quality is everyone's responsibility.
-
-Testing contributions include:
-
-- unit tests
-- integration tests
-- workflow validation
-- accessibility verification
-- performance evaluation
-- regression testing
-
-Reliable software grows from continuous validation.
+Projects remain portable.
 
 ---
 
-# Contribution Workflow
+# Asset Storage
 
-A typical contribution follows these stages.
+Assets include:
+
+- Images
+- Audio
+- Video
+- Documents
+- Embeddings
+- Datasets
+- Models
+
+Assets are stored once and referenced by identifier.
+
+Duplicate storage is avoided.
+
+---
+
+# Workflow Storage
+
+Workflow definitions contain:
+
+- Nodes
+- Connections
+- Variables
+- Metadata
+- Execution History
+- Version Information
+
+Workflow execution state is stored separately.
+
+---
+
+# Plugin Storage
+
+Every plugin receives its own isolated storage namespace.
 
 ```
-Idea
+Plugin A
 
 ↓
 
-Discussion
+Storage A
+
+Plugin B
 
 ↓
 
-Design
-
-↓
-
-Implementation
-
-↓
-
-Documentation
-
-↓
-
-Testing
-
-↓
-
-Review
-
-↓
-
-Revision
-
-↓
-
-Merge
+Storage B
 ```
 
-This process helps maintain quality while encouraging collaboration.
+Plugins cannot access each other's data.
 
 ---
 
-# Pull Requests
+# Provider Storage
 
-Good pull requests are:
+Provider configuration includes:
 
-- focused
-- well documented
-- easy to review
-- consistent with project architecture
-- tested
-- maintainable
+- Authentication
+- Models
+- Endpoints
+- Capabilities
+- Rate Limits
+- Health Information
 
-Small, incremental improvements are generally preferred over large, unrelated changes.
-
----
-
-# Code Quality
-
-Every contribution should prioritize:
-
-- readability
-- simplicity
-- modularity
-- consistency
-- maintainability
-- performance
-- accessibility
-- security
-
-Code is expected to remain understandable long after it is written.
+Sensitive credentials are encrypted whenever possible.
 
 ---
 
-# Documentation Requirements
+# Session Recovery
 
-New features should include appropriate documentation whenever applicable.
+The Storage Manager periodically saves runtime snapshots.
 
-Documentation may include:
+If the browser closes unexpectedly, MAGENAIS restores:
 
-- architecture updates
-- API references
-- user guides
-- migration notes
-- examples
-- diagrams
+- Open Projects
+- Chat Sessions
+- Workflow State
+- UI Layout
+- Provider Configuration
 
-Well-documented software is easier to maintain and extend.
+The user continues where they left off.
 
 ---
 
-# Backward Compatibility
+# Versioning
 
-Whenever practical, contributions should preserve compatibility with existing projects and extensions.
+Every persistent structure includes version metadata.
 
-Breaking changes should be:
+```
+Version 1
 
-- carefully justified
-- clearly documented
-- accompanied by migration
+↓
+
+Migration
+
+↓
+
+Version 2
+
+↓
+
+Migration
+
+↓
+
+Version 3
+```
+
+Automatic migration preserves compatibility across releases.
+
+---
+
+# Data Migration
+
+Migration occurs automatically during application startup.
+
+Migration steps include:
+
+- Schema Validation
+- Backup
+- Conversion
+- Verification
+- Cleanup
+
+Failed migrations automatically roll back.
+
+---
+
+# Storage Events
+
+The Storage Manager emits events including:
+
+```
+storage.read
+
+storage.write
+
+storage.delete
+
+storage.sync
+
+storage.backup
+
+storage.restore
+
+storage.error
+
+storage.migrate
+```
+
+All storage activity is observable.
+
+---
+
+# Synchronization
+
+Storage synchronizes with:
+
+- IndexedDB
+- Local Files
+- Cloud Storage
+- GitHub Repository
+- Remote Services
+
+Synchronization occurs incrementally.
+
+---
+
+# Backup
+
+Users may create complete project backups.
+
+Backups include:
+
+- Projects
+- Assets
+- Workflows
+- Conversations
+- Settings
+- Plugins
+
+Backups remain portable between devices.
+
+---
+
+# Import / Export
+
+Supported formats include:
+
+- JSON
+- Markdown
+- PNG Metadata
+- ZIP Packages
+- Workflow Files
+- Project Archives
+
+Future formats may be added through plugins.
+
+---
+
+# Offline Support
+
+MAGENAIS is fully functional without an internet connection.
+
+Offline users can:
+
+- Edit projects
+- Manage assets
+- Create workflows
+- Organize prompts
+- Configure providers
+
+Cloud synchronization resumes automatically when connectivity returns.
+
+---
+
+# Performance
+
+Performance optimizations include:
+
+- Lazy Loading
+- Incremental Writes
+- Batched Transactions
+- Compression
+- Structural Sharing
+- Smart Cache
+- Background Synchronization
+
+Large projects remain responsive.
+
+---
+
+# Security
+
+The Storage Manager protects data using:
+
+- Permission Validation
+- Sandboxed Plugin Storage
+- Secure Serialization
+- Storage Isolation
+- Input Validation
+- Integrity Verification
+
+Only authorized components may write persistent data.
+
+---
+
+# Future Storage
+
+Future versions may introduce:
+
+- End-to-End Encryption
+- Multi-device Synchronization
+- Cloud Collaboration
+- Git Integration
+- Object Storage
+- Distributed Storage
+- WebDAV Support
+- IPFS Integration
+- AI Memory Compression
+
+without changing the application architecture.
+
+---
+
+# Design Principles
+
+The Storage Manager follows several core principles:
+
+- Persistent by Default
+- Storage Abstraction
+- Browser First
+- Offline First
+- Secure Storage
+- Incremental Synchronization
+- Versioned Data
+- Plugin Isolation
+- High Performance
+- Future Compatibility
+
+These principles allow MAGENAIS to operate as a modern browser-based AI Operating System while remaining scalable, reliable, and independent of any specific storage technology.
+
+---
+
+# Related Documentation
+
+- ARCHITECTURE.md
+- KERNEL.md
+- RUNTIME.md
+- EVENT_BUS.md
+- STATE_MANAGER.md
+- PROVIDER_REGISTRY.md
+- SMART_ROUTER.md
+- WORKFLOW_ENGINE.md
+- PLUGIN_SDK.md
+- PROVIDER_SDK.md
