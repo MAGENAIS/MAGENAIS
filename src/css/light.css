@@ -1,0 +1,22 @@
+/* Light theme overrides – NOT imported by main.ts. Kept here only as a
+ * reference for the token values; ThemeEngine (src/ui/Theme.ts) applies these
+ * same values as inline CSS custom properties on :root at runtime instead,
+ * so the theme can be toggled without swapping stylesheets. If you add a
+ * theme switcher that DOES rely on stylesheet swapping instead, scope this
+ * block under a class/attribute selector (e.g. [data-theme="light"]) rather
+ * than the bare :root shown here, or it will unconditionally override dark. */
+:root {
+  --bg: #f5f5f5;
+  --bg-raised: #ffffff;
+  --bg-panel: #eeeeee;
+  --line: #cccccc;
+  --line-bright: #aaaaaa;
+  --ink: #1a1a1a;
+  --ink-dim: #444444;
+  --ink-faint: #777777;
+  --amber: #b8860b;
+  --amber-dim: #d4a017;
+  --moss: #2e7d32;
+  --rust: #b71c1c;
+  --azure: #0d47a1;
+}
