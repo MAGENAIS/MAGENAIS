@@ -1,0 +1,22 @@
+/*
+ * "Ocean" — sample theme demonstrating the token set a theme must provide.
+ * Register it through the Theme system described in docs/ui/THEMES.md.
+ */
+:root[data-theme="ocean"] {
+  --bg: #0a1420;
+  --bg-raised: #101d2e;
+  --bg-panel: #142438;
+  --line: #1f3349;
+  --line-bright: #2f4a67;
+  --ink: #e7f0f7;
+  --ink-dim: #93aec2;
+  --ink-faint: #56728a;
+  --amber: #4fb0d6;
+  --amber-dim: #2b5468;
+  --moss: #4fd6b0;
+  --rust: #d65f6b;
+  --azure: #5b9bd5;
+  --mono: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+  --sans: "IBM Plex Sans", "Inter", system-ui, sans-serif;
+  --radius: 3px;
+}

@@ -1,0 +1,22 @@
+{
+  "id": "sample-plugin",
+  "name": "Sample Plugin",
+  "version": "1.0.0",
+  "description": "A sample plugin that demonstrates the MAGENAIS Plugin API.",
+  "author": "MAGENAIS Team",
+  "main": "index.js",
+  "permissions": ["provider:register", "ui:menu", "storage:read"],
+  "menus": [
+    {
+      "id": "sample-menu",
+      "label": "Sample Plugin",
+      "command": "sampleCommand"
+    }
+  ],
+  "commands": [
+    {
+      "id": "sampleCommand",
+      "handler": "onSampleCommand"
+    }
+  ]
+}
