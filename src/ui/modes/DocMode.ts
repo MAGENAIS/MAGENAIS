@@ -99,6 +99,12 @@ export class DocMode extends Mode {
       const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.uploadedFile });
       const payload = result.finalOutput;
       this.renderResult(payload, action === 'qa' ? question : undefined);
+      this.kernel.getStore().getActions().addHistoryEntry({
+        mode: 'doc',
+        prompt: action === 'qa' ? question : `[${this.uploadedFile.name}] summary`,
+        result: typeof payload === 'string' ? payload : payload?.summary,
+        resultType: 'text',
+      });
     } catch (err: any) {
       if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
     }
