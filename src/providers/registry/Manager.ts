@@ -129,9 +129,19 @@ export class ProviderManager {
       }
       log?.(`Trying ${provider.name}…`);
       try {
+        // The UI's "Preferred model" field offers provider-specific aliases
+        // (e.g. Pollinations' own "openai"/"mistral"/"claude" routing names) —
+        // applying that override to every other provider in the fallback chain
+        // would force an invalid model id on them the moment the intended
+        // provider fails. Only honor it for the adapter it was written for;
+        // every other candidate falls back to its own configured defaultModel.
+        const modelForThisProvider =
+          options.model && provider.adapterId === options.modelAdapterHint
+            ? options.model
+            : provider.defaultModel;
         const result = await adapter.call(provider, input, {
           ...options,
-          model: options.model || provider.defaultModel,
+          model: modelForThisProvider,
           mode: provider.type,
         });
         log?.(`${provider.name} succeeded.`, 'info');
