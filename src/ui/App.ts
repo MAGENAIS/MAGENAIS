@@ -6,6 +6,7 @@
 
 import { ThemeEngine } from './Theme';
 import { SettingsModal } from './SettingsModal';
+import { HistoryModal } from './HistoryModal';
 import { EventBus } from '../core/EventBus';
 import { Store } from '../core/state/Store';
 import { Kernel } from '../core/Kernel';
@@ -44,6 +45,7 @@ export class App {
   private stage: HTMLElement;
   private navContainer: HTMLElement;
   private settingsModal: SettingsModal;
+  private historyModal: HistoryModal;
 
   constructor(kernel: Kernel) {
     this.kernel = kernel;
@@ -51,6 +53,14 @@ export class App {
     this.store = kernel.getStore();
     this.theme = new ThemeEngine();
     this.settingsModal = new SettingsModal(kernel);
+    this.historyModal = new HistoryModal(kernel, (entry) => {
+      const btn = this.navContainer.querySelector(`.mode-btn[data-mode="${entry.mode === 'speech' || entry.mode === 'music' || entry.mode === 'podcast' ? 'audio' : entry.mode}"]`) as HTMLElement;
+      btn?.click();
+      setTimeout(() => {
+        const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement | null;
+        if (promptInput && entry.prompt) promptInput.value = entry.prompt;
+      }, 0);
+    });
 
     // Find or create the app shell
     const existingApp = document.getElementById('app');
@@ -275,38 +285,35 @@ export class App {
   // Modals (placeholders – can be replaced with Modal component)
   // ------------------------------------------------------------------
   private showIntro(): void {
-    const modal = document.getElementById('introModal');
-    if (modal) {
-      modal.classList.add('open');
-      const close = document.getElementById('closeIntro');
-      if (close) {
-        close.addEventListener('click', () => modal.classList.remove('open'));
-        modal.addEventListener('click', (e) => {
-          if (e.target === modal) modal.classList.remove('open');
-        });
-      }
-    } else {
-      alert('Introduction: MAGENAIS — Mehdi Alireza GENAI Studio\n\n' +
-        'An evolving platform for Generative Artificial Intelligence.\n' +
-        'Contact: Magenais.wisdom@gmail.com');
+    let modal = document.getElementById('introModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      modal.id = 'introModal';
+      modal.innerHTML = `
+        <div class="modal" style="max-width:640px;">
+          <button class="modal-close" id="closeIntro">×</button>
+          <h3>Introduction</h3>
+          <div class="result-text" style="line-height:1.75;">
+            <p style="margin-bottom:14px;">Welcome to MAGENAIS — the GENAI Operating System.</p>
+            <p style="margin-bottom:14px;">MAGENAIS is an evolving platform for Generative Artificial Intelligence, designed to bring together multiple AI models, services, and APIs into a unified ecosystem for intelligent content creation and research. The platform explores the capabilities of modern AI across text, images, video, audio, speech, music, interactive experiences, autonomous agents, and scientific research.</p>
+            <p style="margin-bottom:14px;">The name MAGENAIS reflects a dual identity. Technically, it represents Mehdi Alireza GENAI Studio, the foundation of the platform. Philosophically, it symbolizes "the Birth of Wisdom" — the belief that intelligence is more than computation; it emerges through knowledge, creativity, interaction, and continuous learning.</p>
+            <p style="margin-bottom:14px;">MAGENAIS is both a research initiative and a creative laboratory. Its mission is to investigate how diverse AI systems can collaborate to solve problems, generate ideas, assist discovery, and expand human creativity. Rather than treating individual models as isolated tools, MAGENAIS integrates them into a modular environment where different forms of intelligence can work together.</p>
+            <p style="margin-bottom:14px;">The platform is under continuous development. New features, models, and capabilities are regularly added as AI technologies evolve. Visitors are invited to explore, experiment, and follow the ongoing journey toward more capable, responsible, and meaningful artificial intelligence.</p>
+            <p class="hint">Contact: <a href="mailto:Magenais.wisdom@gmail.com">Magenais.wisdom@gmail.com</a></p>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      const m = modal;
+      m.querySelector('#closeIntro')?.addEventListener('click', () => m.classList.remove('open'));
+      m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('open'); });
     }
+    modal.classList.add('open');
   }
 
   private showHistory(): void {
-    const modal = document.getElementById('historyModal');
-    if (modal) {
-      modal.classList.add('open');
-      const close = document.getElementById('closeHistory');
-      if (close) {
-        close.addEventListener('click', () => modal.classList.remove('open'));
-        modal.addEventListener('click', (e) => {
-          if (e.target === modal) modal.classList.remove('open');
-        });
-      }
-      // TODO: populate gallery from store
-    } else {
-      alert('History: Not implemented yet in modular UI.');
-    }
+    this.historyModal.open();
   }
 
   private showSettings(): void {
