@@ -1,0 +1,10 @@
+{
+  "plugins": [
+    {
+      "id": "sample-plugin",
+      "name": "Sample Plugin",
+      "version": "1.0.0",
+      "main": "index.js"
+    }
+  ]
+}
