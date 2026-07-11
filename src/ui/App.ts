@@ -32,7 +32,7 @@ export class App {
   private theme: ThemeEngine;
   private eventBus: EventBus;
   private store: Store;
-  private currentModeId: string = 'text';
+  private currentModeId: string = '';
   private modeMap: Map<string, Mode> = new Map();
 
   // DOM references
@@ -95,7 +95,7 @@ export class App {
     this.registerModes();
 
     // Set up global event listeners
-    this.setupGlobalListeners();
+    //this.setupGlobalListeners();
 
     // Set initial theme (dark)
     this.theme.setTheme('dark');
@@ -204,8 +204,12 @@ export class App {
 
   private setMode(modeId: string): void {
     if (this.currentModeId === modeId) return;
-    const oldMode = this.modeMap.get(this.currentModeId);
-    if (oldMode) oldMode.deactivate();
+   const oldMode = this.modeMap.get(this.currentModeId); 
+    try {
+      oldMode?.deactivate();
+    } catch (e) {
+      Logger.warn("Old Mode Issue");
+}
 
     const newMode = this.modeMap.get(modeId);
     if (!newMode) {
