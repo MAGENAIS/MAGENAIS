@@ -2,6 +2,8 @@
  * MAGENAIS – Application Entry Point
  * Bootstraps the Kernel, loads configuration, and mounts the UI.
  */
+<<<<<<< HEAD
+=======
 
 // Design system — order matters: tokens first, then base reset/layout, then
 // components. (light.css is intentionally NOT imported here: ThemeEngine
@@ -22,6 +24,31 @@ import { Config } from './core/Config';
 import { Store } from './core/state/Store';
 import { Persistence } from './core/state/Persistence';
 import { App } from './ui/App';
+>>>>>>> f87349c386a8661f618a154c78f6394e58998ba0
+
+// Design system — order matters: tokens first, then base reset/layout, then
+// components. (light.css is intentionally NOT imported here: ThemeEngine
+// applies light/dark values directly as inline CSS custom properties on
+// :root at runtime, which already overrides these defaults with higher
+// specificity — importing light.css's unscoped `:root{...}` block here would
+// permanently override the dark defaults instead of only applying when the
+// user picks the light theme.)
+import './css/variables.css';
+import './css/main.css';
+import './css/layout.css';
+import './css/components.css';
+
+<<<<<<< HEAD
+import { Kernel } from './core/Kernel';
+import { EventBus } from './core/EventBus';
+import { Logger } from './core/Logger';
+import { Config } from './core/Config';
+import { Store } from './core/state/Store';
+import { Persistence } from './core/state/Persistence';
+import { App } from './ui/App';
+=======
+new Bootstrap().start();
+>>>>>>> f87349c386a8661f618a154c78f6394e58998ba0
 
 async function bootstrap() {
   // 1. Load configuration
