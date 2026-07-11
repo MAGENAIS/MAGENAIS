@@ -217,13 +217,20 @@ export class AudioMode extends Mode {
         const result = await this.kernel.getWorkflowEngine().execute(workflow, { text: prompt });
         const url = result.finalOutput;
         if (stage) {
-          stage.innerHTML = `
+          stage.innerHTML = url === '__BROWSER_TTS_PLAYED__'
+            ? `<div class="hint" style="color:var(--moss);">✓ Played live via your browser's built-in voice (no downloadable file — this happens when no keyed speech provider is configured; add one in Keys & Providers to get a downloadable file).</div>`
+            : `
             <div class="result-media">
               <audio src="${url}" controls autoplay></audio>
               <div class="result-actions">
                 <a href="${url}" download="magen-audio"><button class="ghost-btn">Download Audio</button></a>
               </div>
             </div>`;
+        }
+        if (url !== '__BROWSER_TTS_PLAYED__') {
+          this.kernel.getStore().getActions().addHistoryEntry({
+            mode: 'speech', prompt, result: url, resultType: 'audio',
+          });
         }
       } else if (this.activeMode === 'music') {
         const style = (document.getElementById('musicStyle') as HTMLInputElement)?.value.trim();
@@ -256,6 +263,9 @@ export class AudioMode extends Mode {
               </div>
             </div>`;
         }
+        this.kernel.getStore().getActions().addHistoryEntry({
+          mode: 'music', prompt, result: url, resultType: 'audio',
+        });
       } else if (this.activeMode === 'podcast') {
         const { generatePodcast } = await import('../../workflows/legacy/podcast');
         const formatChip = document.querySelector('#podcastFormatChips .chip.active') as HTMLElement;
@@ -294,6 +304,9 @@ export class AudioMode extends Mode {
             navigator.clipboard.writeText(result.script);
           });
         }
+        this.kernel.getStore().getActions().addHistoryEntry({
+          mode: 'podcast', prompt, result: result.url, resultType: 'audio',
+        });
       }
     } catch (err: any) {
       if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
