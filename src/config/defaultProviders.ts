@@ -1,79 +1,85 @@
-import {Provider} from "../providers/ProviderTypes";
+/**
+ * Default AI Providers
+ */
 
-import {Capability} from "./providerCapabilities";
+export const DEFAULT_PROVIDERS = [
 
-export const DefaultProviders:Provider[]=[
+    {
+        id: "pollinations-image",
 
-{
+        name: "Pollinations Image",
 
-id:"pollinations-image",
+        enabled: true,
 
-name:"Pollinations Free",
+        type: "image",
 
-enabled:true,
+        adapter: "pollinations",
 
-priority:10,
+        baseUrl: "https://image.pollinations.ai",
 
-adapter:"pollinations",
+        endpoint: "/prompt/{prompt}",
 
-type:Capability.IMAGE,
+        authType: "none",
 
-baseUrl:"https://image.pollinations.ai",
+        apiKey: "",
 
-endpoint:"/prompt/{prompt}",
+        defaultModel: "flux",
 
-authType:"none",
+        timeout: 30000,
 
-authField:"",
+        priority: 1
+    },
 
-apiKey:"",
+    {
+        id: "openrouter",
 
-timeout:30000,
+        name: "OpenRouter",
 
-retry:2,
+        enabled: false,
 
-defaultModel:"flux",
+        type: "text",
 
-supportedModels:["flux"],
+        adapter: "openrouter",
 
-capabilities:[Capability.IMAGE]
+        baseUrl: "https://openrouter.ai/api/v1",
 
-},
+        endpoint: "/chat/completions",
 
-{
+        authType: "bearer",
 
-id:"openrouter",
+        apiKey: "",
 
-name:"OpenRouter",
+        defaultModel: "openai/gpt-4.1-mini",
 
-enabled:true,
+        timeout: 30000,
 
-priority:20,
+        priority: 2
+    },
 
-adapter:"openrouter",
+    {
+        id: "groq",
 
-type:Capability.TEXT,
+        name: "Groq",
 
-baseUrl:"https://openrouter.ai/api/v1",
+        enabled: false,
 
-endpoint:"/chat/completions",
+        type: "text",
 
-authType:"bearer",
+        adapter: "groq",
 
-authField:"Authorization",
+        baseUrl: "https://api.groq.com/openai/v1",
 
-apiKey:"",
+        endpoint: "/chat/completions",
 
-timeout:30000,
+        authType: "bearer",
 
-retry:2,
+        apiKey: "",
 
-defaultModel:"openai/gpt-4.1-mini",
+        defaultModel: "llama-3.3-70b-versatile",
 
-supportedModels:[],
+        timeout: 30000,
 
-capabilities:[Capability.TEXT]
-
-}
+        priority: 3
+    }
 
 ];
