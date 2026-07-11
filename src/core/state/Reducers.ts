@@ -20,6 +20,17 @@ export class Reducers {
       providers: [...state.providers, payload],
     }));
 
+    this.reducers.set('ADD_HISTORY_ENTRY', (state, payload) => ({
+      ...state,
+      // newest first, capped so localStorage doesn't grow unbounded
+      history: [payload, ...state.history].slice(0, 60),
+    }));
+
+    this.reducers.set('CLEAR_HISTORY', (state) => ({
+      ...state,
+      history: [],
+    }));
+
     // More reducers will be added later
   }
 
