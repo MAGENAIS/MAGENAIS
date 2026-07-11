@@ -103,7 +103,8 @@ export class VideoMode extends Mode {
 
     try {
       const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt });
-      const url = result.finalOutput;
+      const output = result.finalOutput;
+      const url: string = (output && typeof output === 'object' ? output.url : output) as string;
       const isFallback = result.nodeResults.some(n => n.nodeId === 'vid1' && n.output?.isFallback);
       if (stage) {
         stage.innerHTML = `
@@ -115,6 +116,9 @@ export class VideoMode extends Mode {
             </div>
           </div>`;
       }
+      this.kernel.getStore().getActions().addHistoryEntry({
+        mode: 'video', prompt, result: url, resultType: 'video',
+      });
     } catch (err: any) {
       if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
     }
