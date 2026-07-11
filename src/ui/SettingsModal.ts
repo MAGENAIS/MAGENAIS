@@ -1,9 +1,10 @@
 /**
- * Keys & Providers settings modal.
+ * Universal Provider Manager — the Keys & Providers settings modal.
  * Lets the user view every registered provider, enter/save an API key,
- * enable/disable it, add a custom provider, or reset to defaults —
- * this is the UI half of ProviderManager, which already had all the
- * underlying data methods but no way for a person to actually reach them.
+ * enable/disable, edit every field, duplicate, delete, add a custom
+ * provider, or reset to defaults. This is the UI half of ProviderManager,
+ * which already had all the underlying data methods but no way for a
+ * person to actually reach them.
  */
 import { Kernel } from '../core/Kernel';
 import { ProviderConfig, ProviderType } from '../providers/types';
@@ -24,10 +25,37 @@ const TYPE_FILTERS: Array<{ value: ProviderType | 'all'; label: string }> = [
   { value: 'gamegen', label: 'Game Generation' },
 ];
 
+const ADAPTER_OPTIONS = [
+  'openai-compatible', 'openai', 'groq', 'together', 'deepinfra', 'openrouter',
+  'falai', 'replicate', 'deepgram', 'assemblyai', 'playht', 'huggingface',
+  'pollinations', 'anthropic', 'gemini', 'elevenlabs', 'puter', 'browser-speech',
+  'internal-fallback',
+];
+
 function escapeHtml(s: string): string {
   const div = document.createElement('div');
   div.textContent = s ?? '';
   return div.innerHTML;
+}
+
+function blankProvider(): ProviderConfig {
+  return {
+    id: 'custom-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    name: 'New Provider',
+    type: 'text',
+    adapterId: 'openai-compatible',
+    baseUrl: '',
+    authType: 'bearer',
+    authHeaderName: 'Authorization',
+    defaultModel: '',
+    timeoutMs: 30000,
+    retries: 1,
+    priority: 50,
+    enabled: false,
+    isBuiltIn: false,
+    isPreset: false,
+    noKeyNeeded: false,
+  };
 }
 
 export class SettingsModal {
@@ -57,8 +85,8 @@ export class SettingsModal {
     el.innerHTML = `
       <div class="modal" style="max-width:760px;">
         <button class="modal-close" id="closeSettings">×</button>
-        <h3>Keys &amp; Providers</h3>
-        <p class="hint">Every provider — built-in, preset, or custom — lives in one registry.
+        <h3>Universal Provider Manager</h3>
+        <p class="hint">Every provider — built-in, preset, or custom — lives in one registry. Add, edit, duplicate, or delete anything.
           <b style="color:var(--ink-dim);">Keys are saved on this device (browser local storage)</b>
           so you don't need to re-enter them next time — they're only ever sent directly to the
           provider you're calling. On a shared computer, use "Clear device data" before you leave.</p>
@@ -70,48 +98,7 @@ export class SettingsModal {
         <div id="providerList" style="display:flex; flex-direction:column; gap:8px; max-height:380px; overflow-y:auto;"></div>
 
         <div class="divider"></div>
-        <details class="adv" id="addProviderPanel">
-          <summary>+ Add custom provider</summary>
-          <div class="adv-body">
-            <div class="field-row">
-              <div class="field">
-                <label class="field-label">Name</label>
-                <input type="text" id="np-name" placeholder="My Provider">
-              </div>
-              <div class="field">
-                <label class="field-label">Type</label>
-                <select id="np-type">
-                  ${TYPE_FILTERS.filter(f => f.value !== 'all').map(f => `<option value="${f.value}">${f.label}</option>`).join('')}
-                </select>
-              </div>
-            </div>
-            <div class="field">
-              <label class="field-label">Base URL</label>
-              <input type="text" id="np-baseUrl" placeholder="https://api.example.com/v1">
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label class="field-label">Adapter</label>
-                <select id="np-adapterId">
-                  <option value="openai-compatible">openai-compatible (generic REST)</option>
-                  <option value="huggingface">huggingface</option>
-                  <option value="anthropic">anthropic</option>
-                  <option value="gemini">gemini</option>
-                  <option value="elevenlabs">elevenlabs</option>
-                </select>
-              </div>
-              <div class="field">
-                <label class="field-label">Default model</label>
-                <input type="text" id="np-defaultModel" placeholder="e.g. gpt-4o-mini">
-              </div>
-            </div>
-            <div class="field">
-              <label class="field-label">API key <span class="opt">optional at creation</span></label>
-              <input type="password" id="np-apiKey" placeholder="sk-...">
-            </div>
-            <button class="ghost-btn" id="createProviderBtn">Add provider</button>
-          </div>
-        </details>
+        <button class="ghost-btn" id="addProviderBtn" style="width:100%;">+ Add custom provider</button>
 
         <div class="divider"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -136,7 +123,7 @@ export class SettingsModal {
       });
     });
 
-    el.querySelector('#createProviderBtn')?.addEventListener('click', () => this.handleCreateProvider());
+    el.querySelector('#addProviderBtn')?.addEventListener('click', () => this.openEditor(blankProvider(), true));
     el.querySelector('#resetProvidersBtn')?.addEventListener('click', () => this.handleReset());
     el.querySelector('#clearDeviceDataBtn')?.addEventListener('click', () => this.handleClearData());
   }
@@ -185,7 +172,11 @@ export class SettingsModal {
             <button class="ghost-btn small" data-action="toggleVisibility" type="button">👁</button>
           </div>
         </div>`}
-        ${p.isBuiltIn ? '' : '<div><button class="ghost-btn small" data-action="delete">Delete</button></div>'}
+        <div style="display:flex; gap:6px;">
+          <button class="ghost-btn small" data-action="edit">Edit</button>
+          <button class="ghost-btn small" data-action="duplicate">Duplicate</button>
+          ${p.isBuiltIn ? '' : '<button class="ghost-btn small" data-action="delete">Delete</button>'}
+        </div>
       `;
 
       row.querySelector('[data-action="toggle"]')?.addEventListener('change', (e) => {
@@ -208,7 +199,20 @@ export class SettingsModal {
         if (keyInput) keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
       });
 
+      row.querySelector('[data-action="edit"]')?.addEventListener('click', () => this.openEditor(p, false));
+      row.querySelector('[data-action="duplicate"]')?.addEventListener('click', () => {
+        const clone: ProviderConfig = {
+          ...p,
+          id: 'custom-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+          name: p.name + ' (copy)',
+          isBuiltIn: false,
+          isPreset: false,
+        };
+        manager.addProvider(clone);
+        this.renderList();
+      });
       row.querySelector('[data-action="delete"]')?.addEventListener('click', () => {
+        if (!confirm(`Delete "${p.name}"? This can't be undone.`)) return;
         manager.removeProvider(p.id);
         this.renderList();
       });
@@ -217,41 +221,127 @@ export class SettingsModal {
     });
   }
 
-  private handleCreateProvider(): void {
-    const name = (document.getElementById('np-name') as HTMLInputElement)?.value.trim();
-    const type = (document.getElementById('np-type') as HTMLSelectElement)?.value as ProviderType;
-    const baseUrl = (document.getElementById('np-baseUrl') as HTMLInputElement)?.value.trim();
-    const adapterId = (document.getElementById('np-adapterId') as HTMLSelectElement)?.value;
-    const defaultModel = (document.getElementById('np-defaultModel') as HTMLInputElement)?.value.trim();
-    const apiKey = (document.getElementById('np-apiKey') as HTMLInputElement)?.value.trim();
+  /** Full field-by-field provider editor — used for both "Edit" and "Add custom provider". */
+  private openEditor(provider: ProviderConfig, isNew: boolean): void {
+    let modal = document.getElementById('providerEditModal');
+    if (modal) modal.remove();
 
-    if (!name || !baseUrl) {
-      alert('Name and Base URL are required.');
-      return;
-    }
+    modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.id = 'providerEditModal';
+    modal.innerHTML = `
+      <div class="modal" style="max-width:560px;">
+        <button class="modal-close" id="closeProviderEdit">×</button>
+        <h3>${isNew ? 'Add Provider' : 'Edit Provider'}</h3>
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label">Name</label>
+            <input type="text" id="pe-name" value="${escapeHtml(provider.name)}">
+          </div>
+          <div class="field">
+            <label class="field-label">Priority <span class="opt">lower runs first</span></label>
+            <input type="number" id="pe-priority" value="${provider.priority}">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label">Type</label>
+            <select id="pe-type">
+              ${TYPE_FILTERS.filter(f => f.value !== 'all').map(f => `<option value="${f.value}" ${f.value === provider.type ? 'selected' : ''}>${f.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label">Adapter</label>
+            <select id="pe-adapterId">
+              ${ADAPTER_OPTIONS.map(a => `<option value="${a}" ${a === provider.adapterId ? 'selected' : ''}>${a}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label">Base URL</label>
+          <input type="text" id="pe-baseUrl" value="${escapeHtml(provider.baseUrl || '')}" placeholder="https://api.example.com/v1">
+        </div>
+        <div class="field">
+          <label class="field-label">API key <span class="opt">leave blank if not required</span></label>
+          <input type="password" id="pe-apiKey" value="${escapeHtml(provider.apiKey || '')}">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label">Auth type</label>
+            <select id="pe-authType">
+              <option value="bearer" ${provider.authType === 'bearer' ? 'selected' : ''}>Bearer token</option>
+              <option value="header" ${provider.authType === 'header' ? 'selected' : ''}>Custom header</option>
+              <option value="query" ${provider.authType === 'query' ? 'selected' : ''}>Query param</option>
+              <option value="none" ${provider.authType === 'none' ? 'selected' : ''}>None</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label">Auth field name</label>
+            <input type="text" id="pe-authFieldName" value="${escapeHtml(provider.authHeaderName || provider.authQueryParam || 'Authorization')}">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label">Default model</label>
+            <input type="text" id="pe-defaultModel" value="${escapeHtml(provider.defaultModel || '')}">
+          </div>
+          <div class="field">
+            <label class="field-label">Timeout (ms)</label>
+            <input type="number" id="pe-timeoutMs" value="${provider.timeoutMs || 30000}">
+          </div>
+        </div>
+        <label style="display:flex; align-items:center; gap:6px; margin:10px 0; cursor:pointer;">
+          <input type="checkbox" id="pe-noKeyNeeded" style="width:auto;" ${provider.noKeyNeeded ? 'checked' : ''}>
+          <span class="field-label" style="margin:0;">No API key needed</span>
+        </label>
+        <div class="field">
+          <label class="field-label">Notes <span class="opt">optional</span></label>
+          <textarea id="pe-notes" rows="2">${escapeHtml(provider.notes || '')}</textarea>
+        </div>
+        <button class="run-btn" id="saveProviderBtn">${isNew ? 'Add provider' : 'Save changes'}</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.classList.add('open');
 
-    const provider: ProviderConfig = {
-      id: 'custom-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-      name,
-      type,
-      adapterId,
-      baseUrl,
-      authType: 'bearer',
-      defaultModel: defaultModel || undefined,
-      apiKey: apiKey || undefined,
-      timeoutMs: 30000,
-      retries: 1,
-      priority: 50,
-      enabled: true,
-      isBuiltIn: false,
-      isPreset: false,
-    };
-    this.kernel.getProviderManager().addProvider(provider);
-    this.renderList();
+    const m = modal;
+    m.querySelector('#closeProviderEdit')?.addEventListener('click', () => m.remove());
+    m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
 
-    ['np-name', 'np-baseUrl', 'np-defaultModel', 'np-apiKey'].forEach(id => {
-      const el = document.getElementById(id) as HTMLInputElement | null;
-      if (el) el.value = '';
+    m.querySelector('#saveProviderBtn')?.addEventListener('click', () => {
+      const authType = (document.getElementById('pe-authType') as HTMLSelectElement).value as ProviderConfig['authType'];
+      const authFieldName = (document.getElementById('pe-authFieldName') as HTMLInputElement).value.trim();
+      const updated: ProviderConfig = {
+        ...provider,
+        name: (document.getElementById('pe-name') as HTMLInputElement).value.trim() || 'Unnamed Provider',
+        priority: parseInt((document.getElementById('pe-priority') as HTMLInputElement).value, 10) || 50,
+        type: (document.getElementById('pe-type') as HTMLSelectElement).value as ProviderType,
+        adapterId: (document.getElementById('pe-adapterId') as HTMLSelectElement).value,
+        baseUrl: (document.getElementById('pe-baseUrl') as HTMLInputElement).value.trim(),
+        apiKey: (document.getElementById('pe-apiKey') as HTMLInputElement).value.trim() || undefined,
+        authType,
+        authHeaderName: authType === 'header' || authType === 'bearer' ? authFieldName : provider.authHeaderName,
+        authQueryParam: authType === 'query' ? authFieldName : provider.authQueryParam,
+        defaultModel: (document.getElementById('pe-defaultModel') as HTMLInputElement).value.trim() || undefined,
+        timeoutMs: parseInt((document.getElementById('pe-timeoutMs') as HTMLInputElement).value, 10) || 30000,
+        noKeyNeeded: (document.getElementById('pe-noKeyNeeded') as HTMLInputElement).checked,
+        notes: (document.getElementById('pe-notes') as HTMLTextAreaElement).value.trim() || undefined,
+        enabled: isNew ? true : provider.enabled,
+      };
+
+      if (!updated.name || !updated.baseUrl) {
+        alert('Name and Base URL are required.');
+        return;
+      }
+
+      const manager = this.kernel.getProviderManager();
+      if (isNew) {
+        manager.addProvider(updated);
+      } else {
+        manager.updateProvider(provider.id, updated);
+      }
+      m.remove();
+      this.renderList();
     });
   }
 
