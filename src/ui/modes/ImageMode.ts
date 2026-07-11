@@ -119,6 +119,9 @@ export class ImageMode extends Mode {
           </div>`;
         document.getElementById('regenBtn')?.addEventListener('click', () => this.handleGenerate());
       }
+      this.kernel.getStore().getActions().addHistoryEntry({
+        mode: 'image', prompt: finalPrompt, result: url, resultType: 'image',
+      });
     } catch (err: any) {
       if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
     }
