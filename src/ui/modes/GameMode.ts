@@ -86,6 +86,9 @@ export class GameMode extends Mode {
       const html: string = result.finalOutput;
       this.lastGameCode = html;
       this.renderGame(html);
+      this.kernel.getStore().getActions().addHistoryEntry({
+        mode: 'game', prompt: concept, result: html, resultType: 'other',
+      });
     } catch (err: any) {
       if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
     }
