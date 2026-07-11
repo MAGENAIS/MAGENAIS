@@ -23,6 +23,10 @@ import { Store } from './core/state/Store';
 import { Persistence } from './core/state/Persistence';
 import { App } from './ui/App';
 
+import { Bootstrap } from "./bootstrap/Bootstrap";
+
+new Bootstrap().start();
+
 async function bootstrap() {
   // 1. Load configuration
   const config = await Config.load();
