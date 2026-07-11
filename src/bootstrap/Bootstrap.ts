@@ -1,45 +1,45 @@
-import { Config } from "../config/Config";
-import { Logger } from "../core/Logger";
-import { EventBus } from "../core/EventBus";
-import { Kernel } from "../core/Kernel";
-import { Persistence } from "../state/Persistence";
-import { Store } from "../state/Store";
-import { App } from "../ui/App";
+import { APP_DEFAULTS } from "../config/appDefaults";
+import { ProviderRegistry } from "../config/ProviderRegistry";
 
 export class Bootstrap {
 
-    public async start(): Promise<void> {
+    public start(): void {
 
-        // Load configuration
-        const config = await Config.load();
+        const initialized = localStorage.getItem(
 
-        // Configure logger
-        Logger.configure(config.logLevel ?? "info");
+            APP_DEFAULTS.firstRunKey
 
-        // Core services
-        const eventBus = new EventBus();
+        );
 
-        const persistence = new Persistence(config.storage);
+        if (!initialized) {
 
-        const store = new Store(persistence);
+            console.log("First run detected.");
 
-        // Create kernel
-        const kernel = new Kernel({
-            config,
-            eventBus,
-            store,
-            logger: Logger
-        });
+            ProviderRegistry.initialize();
 
-        // Boot kernel
-        await kernel.boot();
+            localStorage.setItem(
 
-        // Create UI
-        const app = new App(kernel);
+                APP_DEFAULTS.settingsStorageKey,
 
-        app.init();
+                JSON.stringify(APP_DEFAULTS)
 
-        Logger.info("Bootstrap completed.");
+            );
+
+            localStorage.setItem(
+
+                APP_DEFAULTS.firstRunKey,
+
+                "true"
+
+            );
+
+            console.log("MAGENAIS initialized.");
+
+        } else {
+
+            console.log("MAGENAIS already initialized.");
+
+        }
 
     }
 

@@ -1,25 +1,24 @@
-export const APP_DEFAULTS = {
+/**
+ * MAGENAIS Application Defaults
+ * Version 1.0
+ */
 
-    appName: "MAGENAIS",
+export const APP_DEFAULTS = {
 
     version: "2.2",
 
-    autoHealthCheck: true,
+    theme: "dark",
 
-    autoRepair: true,
+    language: "en",
 
-    autoFallback: true,
+    autoSave: true,
 
     autoLoadProviders: true,
 
-    autoSaveProviders: true,
+    firstRunKey: "magenais.initialized",
 
-    requestTimeout: 30000,
+    providerStorageKey: "magenais.providers",
 
-    retryCount: 2,
-
-    parallelProviders: false,
-
-    debugMode: false
+    settingsStorageKey: "magenais.settings"
 
 };
