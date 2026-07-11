@@ -1,31 +1,40 @@
-import {Provider} from "./ProviderTypes";
+import { DEFAULT_PROVIDERS } from "./defaultProviders";
+import { APP_DEFAULTS } from "./appDefaults";
 
-export class ProviderRegistry{
+export class ProviderRegistry {
 
-private providers:Provider[]=[];
+    static initialize(): void {
 
-register(provider:Provider){
+        const exists = localStorage.getItem(APP_DEFAULTS.providerStorageKey);
 
-this.providers.push(provider);
+        if (!exists) {
 
-}
+            localStorage.setItem(
 
-all(){
+                APP_DEFAULTS.providerStorageKey,
 
-return this.providers;
+                JSON.stringify(DEFAULT_PROVIDERS)
 
-}
+            );
 
-enabled(){
+            console.log("Default providers installed.");
 
-return this.providers.filter(p=>p.enabled);
+        }
 
-}
+    }
 
-byType(type:string){
+    static getProviders() {
 
-return this.providers.filter(p=>p.type===type);
+        return JSON.parse(
 
-}
+            localStorage.getItem(
+
+                APP_DEFAULTS.providerStorageKey
+
+            ) || "[]"
+
+        );
+
+    }
 
 }
