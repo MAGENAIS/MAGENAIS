@@ -44,6 +44,13 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
 
     const mergedOptions = {
       model: node.config?.model,
+      // The UI's "Preferred model" pickers currently only offer Pollinations'
+      // own routing aliases (openai/mistral/claude/deepseek/qwen-coder, flux,
+      // wan, ...) — scope the override to that adapter so it doesn't get
+      // force-applied to unrelated fallback providers. If/when a mode adds a
+      // real per-provider model picker, it should set node.config.modelAdapterHint
+      // to that provider's adapterId instead of leaving this default.
+      modelAdapterHint: node.config?.modelAdapterHint ?? 'pollinations',
       temperature: node.config?.temperature,
       maxTokens: node.config?.maxTokens,
       width: node.config?.width,
