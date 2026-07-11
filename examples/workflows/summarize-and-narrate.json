@@ -1,14 +1,14 @@
 {
-  "id": "example-summarize-and-narrate",
-  "name": "Summarize a document, then narrate it",
+  "id": "example-research-summarize-narrate",
+  "name": "Research a topic, then narrate the findings",
   "graph": {
     "nodes": [
       {
-        "id": "doc1",
-        "type": "doc",
-        "label": "Extract & Summarize",
-        "config": { "action": "summary" },
-        "inputs": { "file": { "ref": "input.file" } },
+        "id": "research1",
+        "type": "research",
+        "label": "Gather Sources",
+        "config": { "sources": ["semanticscholar", "openalex", "arxiv"], "limitPerSource": 6 },
+        "inputs": { "query": "quantum error correction 2026" },
         "enabled": true
       },
       {
@@ -16,12 +16,12 @@
         "type": "speech",
         "label": "Narrate Summary",
         "config": { "voice": "alloy" },
-        "inputs": { "text": { "ref": "doc1.summary" } },
+        "inputs": { "text": "${research1.summary}" },
         "enabled": true
       }
     ],
     "edges": [
-      { "from": "doc1", "to": "speech1" }
+      { "from": "research1", "to": "speech1" }
     ]
   }
 }

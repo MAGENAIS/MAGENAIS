@@ -17,12 +17,25 @@ export class GeminiAdapter extends BaseAdapter {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, url, headers);
 
+    // Vision: input.imageBase64 is a data URL — Gemini takes inline image data
+    // as an additional part alongside the text part.
+    const imageDataUrl: string | undefined = input?.imageBase64;
+    const parts: any[] = [{ text: prompt || 'Describe what you see in this image.' }];
+    if (imageDataUrl) {
+      parts.push({
+        inline_data: {
+          mime_type: (imageDataUrl.match(/^data:(image\/[a-z]+);base64,/)?.[1]) || 'image/jpeg',
+          data: imageDataUrl.replace(/^data:image\/[a-z]+;base64,/, ''),
+        },
+      });
+    }
+
     const response = await this.fetchWithRetry(
       finalUrl,
       {
         method: 'POST',
         headers: finalHeaders,
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        body: JSON.stringify({ contents: [{ parts }] }),
       },
       provider
     );

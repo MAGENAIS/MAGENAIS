@@ -237,6 +237,44 @@ export class DocNodeExecutor extends BaseNodeExecutor {
   }
 }
 
+export class CodingNodeExecutor extends BaseNodeExecutor {
+  type: NodeType = 'coding';
+
+  async execute(node: Node, context: ExecutionContext): Promise<any> {
+    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const request = inputs.prompt || inputs.request || '';
+    if (!request) throw new Error('Coding node requires a description of what to build.');
+
+    const language = node.config?.language || 'JavaScript';
+    const prompt = `You are an expert ${language} programmer. Write clean, correct, well-commented, production-quality ${language} code for the following request:\n\n"${request}"\n\nRespond with a single fenced code block in ${language}, followed by a short 1-3 sentence explanation of how it works. Do not omit any part of the implementation with placeholder comments like "rest of the code here" — write the complete, runnable code.`;
+
+    // Coding reuses the much larger and more reliable 'text' fallback chain
+    // (Groq, OpenRouter, Anthropic, Gemini, Hugging Face, Pollinations, ...)
+    // rather than the single sparse 'coding'-type registry entry, since any
+    // capable text model can write code — this mirrors how the legacy
+    // monolith's "qwen-coder" was just one alias within the same text pipeline,
+    // not a separate provider category.
+    return this.callProvider(node, { prompt }, context, { model: node.config?.model });
+  }
+}
+
+export class VisionNodeExecutor extends BaseNodeExecutor {
+  type: NodeType = 'vision';
+
+  async execute(node: Node, context: ExecutionContext): Promise<any> {
+    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const imageBase64 = inputs.imageBase64;
+    if (!imageBase64) throw new Error('Vision node requires an image (data URL).');
+    const prompt = inputs.prompt || 'Describe what you see in this image in detail.';
+
+    if (!context.services) {
+      throw new Error('Provider services are not available in this execution context.');
+    }
+    const { providerManager, router } = context.services;
+    return providerManager.callVision(imageBase64, prompt, router, context.log);
+  }
+}
+
 // Registry of all built-in executors
 export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   new TextNodeExecutor(),
@@ -249,4 +287,6 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   new GameGenNodeExecutor(),
   new DataNodeExecutor(),
   new DocNodeExecutor(),
+  new CodingNodeExecutor(),
+  new VisionNodeExecutor(),
 ];

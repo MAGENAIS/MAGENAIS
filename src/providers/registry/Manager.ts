@@ -158,6 +158,52 @@ export class ProviderManager {
     );
   }
 
+  /**
+   * Vision (image understanding) reuses the existing 'text' provider entries
+   * rather than needing separate vision-specific registry entries — so a key
+   * you already entered for, say, Anthropic text generation works for vision
+   * too, with no extra setup. Only adapters that actually support multimodal
+   * image input (Anthropic, Gemini) are attempted.
+   */
+  async callVision(
+    imageBase64: string,
+    prompt: string,
+    router: SmartRouter,
+    log?: (message: string, level?: 'info' | 'warn' | 'error') => void
+  ): Promise<string> {
+    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini'];
+    const candidates = router
+      .getSortedProviders('text')
+      .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey));
+
+    if (candidates.length === 0) {
+      throw new Error(
+        "No vision-capable provider is configured — add an API key for Anthropic (Claude) or Google Gemini in Keys & Providers. Both support image understanding using the same key you'd use for text generation."
+      );
+    }
+
+    const errors: string[] = [];
+    for (const provider of candidates) {
+      const adapter = this.registry.getAdapter(provider.adapterId);
+      if (!adapter || !adapter.call) continue;
+      log?.(`Analyzing image with ${provider.name}…`);
+      try {
+        const result = await adapter.call(
+          provider,
+          { prompt, imageBase64 },
+          { model: provider.defaultModel, mode: 'vision' }
+        );
+        log?.(`${provider.name} succeeded.`, 'info');
+        return result;
+      } catch (err: any) {
+        const message = err?.message || String(err);
+        errors.push(`${provider.name}: ${message}`);
+        log?.(`${provider.name} failed — ${message}`, 'error');
+      }
+    }
+    throw new Error(`All vision provider(s) failed:\n` + errors.join('\n'));
+  }
+
   // Delegate some methods to registry for convenience
   getProviders(type?: string, enabledOnly?: boolean) {
     return this.registry.getProviders(type as any, enabledOnly);

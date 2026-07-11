@@ -23,6 +23,23 @@ export class AnthropicAdapter extends BaseAdapter {
     };
     const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, url, headers);
 
+    // Vision: input.imageBase64 is a data URL (data:image/jpeg;base64,...) —
+    // Anthropic's Messages API accepts multimodal content blocks natively.
+    const imageDataUrl: string | undefined = input?.imageBase64;
+    const content = imageDataUrl
+      ? [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: (imageDataUrl.match(/^data:(image\/[a-z]+);base64,/)?.[1]) || 'image/jpeg',
+              data: imageDataUrl.replace(/^data:image\/[a-z]+;base64,/, ''),
+            },
+          },
+          { type: 'text', text: prompt || 'Describe what you see in this image.' },
+        ]
+      : prompt;
+
     const response = await this.fetchWithRetry(
       finalUrl,
       {
@@ -32,7 +49,7 @@ export class AnthropicAdapter extends BaseAdapter {
           model,
           max_tokens: options?.maxTokens ?? 1024,
           temperature: options?.temperature ?? 0.8,
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content }],
         }),
       },
       provider

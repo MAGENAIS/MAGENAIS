@@ -169,7 +169,7 @@ export class SettingsModal {
         <div class="key-row">
           <div style="display:flex; gap:6px;">
             <input type="password" data-action="apiKey" placeholder="API key" value="${escapeHtml(p.apiKey || '')}" style="flex:1;">
-            <button class="ghost-btn small" data-action="toggleVisibility" type="button">👁</button>
+            <button class="ghost-btn small" data-action="toggleVisibility" type="button" title="Show or hide the key">👁</button>
           </div>
         </div>`}
         <div style="display:flex; gap:6px;">

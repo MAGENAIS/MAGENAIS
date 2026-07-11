@@ -7,6 +7,7 @@
 import { ThemeEngine } from './Theme';
 import { SettingsModal } from './SettingsModal';
 import { HistoryModal } from './HistoryModal';
+import { WorkflowModal } from './WorkflowModal';
 import { EventBus } from '../core/EventBus';
 import { Store } from '../core/state/Store';
 import { Kernel } from '../core/Kernel';
@@ -23,7 +24,8 @@ import { DocMode } from './modes/DocMode';
 import { ResearchMode } from './modes/ResearchMode';
 import { GameMode } from './modes/GameMode';
 import { AgentsMode } from './modes/AgentsMode';
-import { HelpMode } from './modes/HelpMode';
+import { CodingMode } from './modes/CodingMode';
+import { VisionMode } from './modes/VisionMode';
 
 export class App {
   private kernel: Kernel;
@@ -46,6 +48,7 @@ export class App {
   private navContainer: HTMLElement;
   private settingsModal: SettingsModal;
   private historyModal: HistoryModal;
+  private workflowModal: WorkflowModal;
 
   constructor(kernel: Kernel) {
     this.kernel = kernel;
@@ -61,6 +64,7 @@ export class App {
         if (promptInput && entry.prompt) promptInput.value = entry.prompt;
       }, 0);
     });
+    this.workflowModal = new WorkflowModal(kernel);
 
     // Find or create the app shell
     const existingApp = document.getElementById('app');
@@ -103,16 +107,20 @@ export class App {
   private getAppShellMarkup(): string {
     return `
       <header class="topbar">
+        <div class="topbar-banner" aria-hidden="true"></div>
         <div class="brand">
-          <div class="mark">MAGENAI<span>S</span></div>
-          <div class="tag">GENAI OPERATING SYSTEM · Birth of Wisdom</div>
+          <img class="brand-logo" src="/branding/logo.png" alt="" aria-hidden="true">
+          <div class="brand-text">
+            <div class="mark">MAGENAI<span>S</span></div>
+            <div class="tag">GENAI OPERATING SYSTEM · Birth of Wisdom</div>
+          </div>
         </div>
         <div class="topbar-right">
-          <button class="ghost-btn" id="introBtn">Introduction</button>
-          <button class="ghost-btn" id="historyBtn">History</button>
-          <button class="ghost-btn" id="settingsBtn">Keys &amp; Providers</button>
-          <button class="ghost-btn" id="themeBtn">🌓</button>
-          <button class="ghost-btn" id="workflowBtn">📊 Workflow</button>
+          <button class="ghost-btn" id="introBtn" title="About MAGENAIS, mission, and contact">Introduction</button>
+          <button class="ghost-btn" id="historyBtn" title="Browse and reload past generations">History</button>
+          <button class="ghost-btn" id="settingsBtn" title="Add API keys and manage providers">Keys &amp; Providers</button>
+          <button class="ghost-btn" id="themeBtn" title="Switch between dark and light theme">Theme</button>
+          <button class="ghost-btn" id="workflowBtn" title="Chain multiple generation steps into one pipeline">Workflow</button>
         </div>
       </header>
       <nav class="modes" id="modeNav"></nav>
@@ -147,7 +155,8 @@ export class App {
     this.modeMap.set('research', new ResearchMode(this.controlPanel, this.outputPanel, this.kernel));
     this.modeMap.set('game', new GameMode(this.controlPanel, this.outputPanel, this.kernel));
     this.modeMap.set('agents', new AgentsMode(this.controlPanel, this.outputPanel, this.kernel));
-    this.modeMap.set('help', new HelpMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('coding', new CodingMode(this.controlPanel, this.outputPanel, this.kernel));
+    this.modeMap.set('vision', new VisionMode(this.controlPanel, this.outputPanel, this.kernel));
   }
 
   public init(): void {
@@ -179,7 +188,8 @@ export class App {
       { id: 'research', label: 'Research', num: 7 },
       { id: 'game', label: 'Game', num: 8 },
       { id: 'agents', label: 'Agents', num: 9 },
-      { id: 'help', label: 'Help', num: 10 },
+      { id: 'coding', label: 'Coding', num: 10 },
+      { id: 'vision', label: 'Vision', num: 11 },
     ];
     this.navContainer.innerHTML = '';
     modes.forEach(m => {
@@ -300,6 +310,15 @@ export class App {
             <p style="margin-bottom:14px;">The name MAGENAIS reflects a dual identity. Technically, it represents Mehdi Alireza GENAI Studio, the foundation of the platform. Philosophically, it symbolizes "the Birth of Wisdom" — the belief that intelligence is more than computation; it emerges through knowledge, creativity, interaction, and continuous learning.</p>
             <p style="margin-bottom:14px;">MAGENAIS is both a research initiative and a creative laboratory. Its mission is to investigate how diverse AI systems can collaborate to solve problems, generate ideas, assist discovery, and expand human creativity. Rather than treating individual models as isolated tools, MAGENAIS integrates them into a modular environment where different forms of intelligence can work together.</p>
             <p style="margin-bottom:14px;">The platform is under continuous development. New features, models, and capabilities are regularly added as AI technologies evolve. Visitors are invited to explore, experiment, and follow the ongoing journey toward more capable, responsible, and meaningful artificial intelligence.</p>
+            <p class="field-label" style="margin-bottom:8px;">Getting Started</p>
+            <ul style="margin:0 0 14px 18px; padding:0; display:flex; flex-direction:column; gap:6px;">
+              <li>Browse the available sections using the navigation menu.</li>
+              <li>Add at least one provider API key under <b>Keys &amp; Providers</b> — most features need one.</li>
+              <li>Select a module and start exploring; each tab has its own quick hint at the bottom of the panel.</li>
+              <li>As the platform is actively evolving, new tools and improvements are added regularly.</li>
+            </ul>
+            <p class="field-label" style="margin-bottom:8px;">Development Status</p>
+            <p style="margin-bottom:14px;">MAGENAIS is currently under active development. Some features may be experimental, unavailable, or subject to change while new capabilities are being integrated and tested. Your feedback and suggestions are always appreciated.</p>
             <p class="hint">Contact: <a href="mailto:Magenais.wisdom@gmail.com">Magenais.wisdom@gmail.com</a></p>
           </div>
         </div>
@@ -321,10 +340,7 @@ export class App {
   }
 
   private showWorkflowEditor(): void {
-    // Placeholder – will open the WorkflowCanvas component in a modal or panel.
-    // For now, we can use a simple alert.
-    alert('Workflow Editor – will open a visual editor for workflows.');
-    // In future, we can create a modal with the WorkflowCanvas.
+    this.workflowModal.open();
   }
 
   // ------------------------------------------------------------------

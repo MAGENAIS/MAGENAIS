@@ -14,7 +14,9 @@ export type NodeType =
   | 'research'
   | 'gamegen'
   | 'data'
-  | 'doc';
+  | 'doc'
+  | 'coding'
+  | 'vision';
 
 // --- Node Input Mapping ---
 // A mapping from a node's input field name to a value or a reference to another node's output.
