@@ -68,7 +68,7 @@ export class VideoMode extends Mode {
         : '<p class="hint" style="color:var(--ink-faint);">Pollinations key present – video generation may still require Pollen balance.</p>';
     }
 
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleGenerate());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleGenerate()));
   }
 
   private async handleGenerate(): Promise<void> {

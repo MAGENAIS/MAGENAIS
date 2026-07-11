@@ -52,7 +52,7 @@ export class CodingMode extends Mode {
       <p class="hint">Runs through the same text-provider fallback chain as Text &amp; Voice — any capable model can write code, so no separate setup is needed beyond your usual text provider key.</p>
       <button class="run-btn" id="runBtn">▸ Generate Code</button>
     `);
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleRun());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleRun()));
   }
 
   private async handleRun(): Promise<void> {

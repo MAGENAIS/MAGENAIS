@@ -60,7 +60,33 @@ export class Store {
     }
     const newState = reducer(this.state, action.payload);
     this.state = newState;
-    this.persistence.save(this.state);
+    // ROOT CAUSE (Priority 3 — provider API keys lost on every restart):
+    // Store, ProviderManager, AssetManager, and ProjectManager all share one
+    // Persistence instance / localStorage key. AssetManager and
+    // ProjectManager correctly read-merge-write (`load() || {}`, patch their
+    // own slice, `save()`), but Store used to call `persistence.save(this.state)`
+    // directly — replacing the ENTIRE stored blob with just AppState's shape
+    // (which has its own always-empty `providers: []`) on every single
+    // dispatch, including the `ADD_HISTORY_ENTRY` dispatched after every
+    // successful Generate. That silently wiped out whatever
+    // ProviderManager.saveProviders() had just written moments earlier.
+    // Fire-and-forget to match the previous (synchronous-looking) call
+    // signature of dispatch(), but now merges instead of clobbering.
+    this.persistMerged();
+  }
+
+  private async persistMerged(): Promise<void> {
+    const existing = (await this.persistence.load()) || {};
+    // Only merge in the slices Store actually owns/mutates via its
+    // reducers. `providers`, `assets`, and `projects` are separately owned
+    // by ProviderManager / AssetManager / ProjectManager (each of which
+    // reads the shared blob, patches only its own slice, and writes it
+    // back) — Store's copies of those fields are never populated by any
+    // reducer, so blindly including them here would silently zero them
+    // back out on every dispatch, reintroducing the exact clobbering bug
+    // this fix exists to prevent.
+    const { providers, assets, projects, ...ownedState } = this.state;
+    await this.persistence.save({ ...existing, ...ownedState });
   }
 
   async load(): Promise<void> {
@@ -71,7 +97,7 @@ export class Store {
   }
 
   async persist(): Promise<void> {
-    await this.persistence.save(this.state);
+    await this.persistMerged();
   }
 
   // Expose action creators

@@ -102,10 +102,20 @@ export class Kernel {
 
     // 2. Provider Platform
     this.providerRegistry = new ProviderRegistry(this.eventBus);
+    // Providers get their OWN persistence namespace/localStorage key rather
+    // than sharing Store's — belt-and-suspenders on top of the read-merge-
+    // write fixes in Store/ProviderManager, and it matches what
+    // ProviderManager's own (previously unused) `storageKey` field already
+    // implied was the intended design.
+    const providerPersistence = new Persistence({
+      type: this.config.storage.type,
+      namespace: `${this.config.storage.namespace}:providers`,
+    });
     this.providerManager = new ProviderManager(
       this.providerRegistry,
-      this.store.getPersistence(),
-      this.eventBus
+      providerPersistence,
+      this.eventBus,
+      this.store.getPersistence()
     );
     this.router = new SmartRouter(this.providerRegistry);
     this.healthMonitor = new HealthMonitor(this.providerRegistry, this.eventBus);

@@ -41,6 +41,9 @@ interface StepUI {
 export class WorkflowModal {
   private kernel: Kernel;
   private steps: StepUI[] = [];
+  // Same re-entrancy/disabled-state guard as Mode.runGuarded (WorkflowModal
+  // doesn't extend Mode, so it needs its own copy).
+  private isBusy: boolean = false;
 
   constructor(kernel: Kernel) {
     this.kernel = kernel;
@@ -87,7 +90,7 @@ export class WorkflowModal {
       this.addStep('text');
       this.renderSteps();
     });
-    el.querySelector('#wfRunBtn')?.addEventListener('click', () => this.runWorkflow());
+    el.querySelector('#wfRunBtn')?.addEventListener('click', () => this.runWorkflowGuarded());
   }
 
   private addStep(type: NodeType): void {
@@ -138,6 +141,26 @@ export class WorkflowModal {
 
       list.appendChild(row);
     });
+  }
+
+  private async runWorkflowGuarded(): Promise<void> {
+    if (this.isBusy) return;
+    this.isBusy = true;
+    const btn = document.getElementById('wfRunBtn') as HTMLButtonElement | null;
+    const originalLabel = btn?.textContent ?? '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Working…';
+    }
+    try {
+      await this.runWorkflow();
+    } finally {
+      this.isBusy = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    }
   }
 
   private async runWorkflow(): Promise<void> {

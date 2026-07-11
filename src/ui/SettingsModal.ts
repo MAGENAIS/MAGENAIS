@@ -9,6 +9,7 @@
 import { Kernel } from '../core/Kernel';
 import { ProviderConfig, ProviderType } from '../providers/types';
 import { DEFAULT_PROVIDERS } from '../providers/defaultProviders';
+import { ProviderValidator } from '../config/ProviderValidator';
 
 const TYPE_FILTERS: Array<{ value: ProviderType | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -329,8 +330,9 @@ export class SettingsModal {
         enabled: isNew ? true : provider.enabled,
       };
 
-      if (!updated.name || !updated.baseUrl) {
-        alert('Name and Base URL are required.');
+      const validation = ProviderValidator.validate(updated);
+      if (!validation.valid) {
+        alert('Please fix the following before saving:\n\n' + validation.errors.join('\n'));
         return;
       }
 

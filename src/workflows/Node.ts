@@ -33,7 +33,8 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
     node: Node,
     input: any,
     context: ExecutionContext,
-    options: Record<string, any> = {}
+    options: Record<string, any> = {},
+    providerTypeOverride?: string
   ): Promise<any> {
     if (!context.services) {
       throw new Error(
@@ -61,8 +62,13 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
       ...options,
     };
 
-    // Provider type matches node type 1:1 for all generation node types.
-    const providerType = node.type as any;
+    // Provider type matches node type 1:1 for most generation node types,
+    // but a few node types (e.g. 'doc' summarization) don't have their own
+    // dedicated provider pool and are meant to reuse another modality's
+    // providers — pass providerTypeOverride in that case rather than
+    // routing to a provider type that was never registered (see
+    // DocNodeExecutor, which reuses 'text').
+    const providerType = (providerTypeOverride ?? node.type) as any;
     return providerManager.callWithFallback(providerType, router, input, mergedOptions, context.log);
   }
 }
@@ -230,7 +236,14 @@ export class DocNodeExecutor extends BaseNodeExecutor {
       const summaryPrompt = node.config?.question
         ? `Given the following document, answer this question: "${node.config.question}"\n\nDocument:\n${text.slice(0, 12000)}`
         : `Summarize the following document:\n\n${text.slice(0, 12000)}`;
-      const summary = await this.callProvider(node, { prompt: summaryPrompt }, context);
+      // ROOT CAUSE (Priority 2 — Documents tab never worked): 'doc' is a
+      // valid NodeType but was never a valid ProviderType/DEFAULT_PROVIDERS
+      // entry, so routing this call through node.type ('doc') always hit
+      // "No configured/enabled provider is available for 'doc'" even with
+      // API keys configured. Document summarization is a text-generation
+      // task, so route it through the 'text' provider pool — the same
+      // pattern ProviderManager.callVision already uses for vision.
+      const summary = await this.callProvider(node, { prompt: summaryPrompt }, context, {}, 'text');
       return { extractedText: text, summary };
     }
     return { extractedText: text };

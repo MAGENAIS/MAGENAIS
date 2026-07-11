@@ -48,7 +48,7 @@ export class GameMode extends Mode {
       });
     });
 
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleRun(false));
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleRun(false)));
   }
 
   private async handleRun(iterate: boolean): Promise<void> {
@@ -118,7 +118,7 @@ export class GameMode extends Mode {
       }
       if (runBtn) {
         runBtn.textContent = '▸ Apply Change';
-        runBtn.onclick = () => this.handleRun(true);
+        runBtn.onclick = () => this.runGuarded('runBtn', () => this.handleRun(true));
       }
     });
   }

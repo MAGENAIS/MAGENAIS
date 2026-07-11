@@ -4,36 +4,83 @@ import { SmartRouter } from '../Router';
 import { Persistence } from '../../core/state/Persistence';
 import { EventBus } from '../../core/EventBus';
 import { Logger } from '../../core/Logger';
+import { ProviderValidator } from '../../config/ProviderValidator';
 
 export class ProviderManager {
   private registry: ProviderRegistry;
   private persistence: Persistence;
+  private legacyPersistence?: Persistence;
   private storageKey: string = 'magenais:providers';
+  // Bumping this invalidates nothing by itself — it's stamped into saved
+  // data so a future migration can detect "this was written by an older
+  // shape of ProviderManager" and adapt instead of guessing.
+  private static readonly SCHEMA_VERSION = 2;
 
-  constructor(registry: ProviderRegistry, persistence: Persistence, eventBus: EventBus) {
+  constructor(registry: ProviderRegistry, persistence: Persistence, eventBus: EventBus, legacyPersistence?: Persistence) {
     this.registry = registry;
     this.persistence = persistence;
+    // Providers used to be saved under the same shared key as Store/
+    // AssetManager/ProjectManager. Now that they have their own dedicated
+    // namespace (see Kernel), pass the OLD shared Persistence here so any
+    // provider data already on a user's machine gets migrated forward
+    // instead of appearing to have vanished.
+    this.legacyPersistence = legacyPersistence;
   }
 
   /**
    * Load providers from persistence (localStorage/IndexedDB) and merge with defaults.
    * This should be called during application bootstrap.
+   *
+   * Version-safe / first-launch-only default seeding (Priority 3):
+   * Previously, EVERY boot re-merged the full `defaultProviders` list
+   * underneath whatever was stored, keyed by provider id. That looks safe
+   * (stored values "override" defaults) but it silently *resurrects* any
+   * built-in provider the user had explicitly deleted, because a deleted
+   * provider simply has no entry in `stored` — so the default reappears
+   * every time. We now persist the set of default ids we've ever seeded
+   * (`seededDefaultIds`) alongside the providers themselves: on later boots,
+   * a default id is only (re)added if it's a *new* one the user has never
+   * seen before (e.g. a built-in provider added in a later app version) —
+   * never one that was seeded before and is now simply absent from `stored`.
    */
   async loadProviders(defaultProviders: ProviderConfig[]): Promise<void> {
     let stored: ProviderConfig[] = [];
+    let seededDefaultIds: string[] = [];
     try {
       const data = await this.persistence.load();
-      if (data && data.providers) {
+      if (data && Array.isArray(data.providers)) {
         stored = data.providers;
+        seededDefaultIds = Array.isArray(data.seededDefaultIds) ? data.seededDefaultIds : [];
+      } else if (this.legacyPersistence) {
+        // Nothing under the new dedicated key yet — check the old shared
+        // key for provider data saved by a previous version of the app
+        // before providers had their own namespace, and migrate it in.
+        const legacyData = await this.legacyPersistence.load();
+        if (legacyData && Array.isArray(legacyData.providers) && legacyData.providers.length > 0) {
+          stored = legacyData.providers;
+          seededDefaultIds = Array.isArray(legacyData.seededDefaultIds) ? legacyData.seededDefaultIds : [];
+          Logger.info(`ProviderManager: migrated ${stored.length} provider(s) from legacy storage key.`);
+        }
       }
     } catch (e) {
       Logger.warn('Failed to load providers from persistence, using defaults.', e);
     }
 
-    // Merge: stored providers override defaults by id, but we also add any missing defaults.
+    const isFirstLaunch = stored.length === 0 && seededDefaultIds.length === 0;
+    const seededSet = new Set(seededDefaultIds);
+
+    // Merge: stored providers override defaults by id, but we also add any
+    // DEFAULT provider that has never been seeded before (first launch, or
+    // a newly-introduced built-in in a later app version). A default whose
+    // id was seeded previously but is now missing from `stored` was
+    // intentionally deleted by the user and must NOT be resurrected.
     const mergedMap = new Map<string, ProviderConfig>();
-    // First add defaults
-    defaultProviders.forEach(p => mergedMap.set(p.id, { ...p }));
+    defaultProviders.forEach(p => {
+      if (isFirstLaunch || !seededSet.has(p.id)) {
+        mergedMap.set(p.id, { ...p });
+        seededSet.add(p.id);
+      }
+    });
     // Then override with stored (keep stored API keys, enabled status, etc.)
     stored.forEach(p => {
       const existing = mergedMap.get(p.id);
@@ -41,7 +88,8 @@ export class ProviderManager {
         // Merge: stored values take precedence, but we keep the id and type from default if missing
         mergedMap.set(p.id, { ...existing, ...p });
       } else {
-        // Custom provider (not in defaults)
+        // Custom provider (not in defaults), or a previously-deleted default
+        // the user re-added by hand — either way, trust the stored copy.
         mergedMap.set(p.id, p);
       }
     });
@@ -49,20 +97,37 @@ export class ProviderManager {
     // Clear registry and load merged
     this.registry.clear();
     this.registry.loadProviders(Array.from(mergedMap.values()));
-    Logger.info(`ProviderManager: loaded ${mergedMap.size} providers (${stored.length} from storage).`);
+    this.seededDefaultIds = Array.from(seededSet);
+    Logger.info(
+      `ProviderManager: loaded ${mergedMap.size} providers (${stored.length} from storage, first launch: ${isFirstLaunch}).`
+    );
+    // Persist the (possibly updated) seeded-id set immediately so a crash
+    // before the next explicit save doesn't lose first-launch tracking.
+    await this.saveProviders();
   }
+
+  private seededDefaultIds: string[] = [];
 
   /**
    * Save current provider configurations to persistence.
+   *
+   * ROOT CAUSE (Priority 3 — API keys lost on restart): Store,
+   * ProviderManager, AssetManager, and ProjectManager all shared one
+   * Persistence instance / localStorage key. AssetManager/ProjectManager
+   * correctly read-merge-write; this method used to build a brand-new
+   * `data` object from scratch and call `persistence.save(data)`, blowing
+   * away app state / assets / projects that were sharing the same key.
+   * Now it merges into whatever is already stored, same as its siblings.
    */
   async saveProviders(): Promise<void> {
     const providers = this.registry.getAllProviders();
-    // Do not save built-in? We can still save them to preserve API keys and enabled state.
-    // We'll save all, but we can filter out isBuiltIn if desired, but it's fine.
+    const existing = (await this.persistence.load()) || {};
     const data = {
-      version: 1,
+      ...existing,
+      version: ProviderManager.SCHEMA_VERSION,
       savedAt: new Date().toISOString(),
-      providers: providers,
+      providers,
+      seededDefaultIds: this.seededDefaultIds,
     };
     await this.persistence.save(data);
     Logger.debug('ProviderManager: providers saved.');
@@ -74,6 +139,7 @@ export class ProviderManager {
   async resetToDefaults(defaultProviders: ProviderConfig[]): Promise<void> {
     this.registry.clear();
     this.registry.loadProviders(defaultProviders);
+    this.seededDefaultIds = defaultProviders.map(p => p.id);
     await this.saveProviders();
     Logger.info('ProviderManager: reset to defaults.');
   }
@@ -82,9 +148,12 @@ export class ProviderManager {
    * Delete all provider data from persistence (clear device data).
    */
   async clearAllData(): Promise<void> {
-    // Clear persistence and registry
-    await this.persistence.save({ providers: [] });
+    // Clear only this subsystem's slice of the shared blob — never blindly
+    // overwrite the whole thing (see saveProviders() above for why).
+    const existing = (await this.persistence.load()) || {};
+    await this.persistence.save({ ...existing, providers: [], seededDefaultIds: [] });
     this.registry.clear();
+    this.seededDefaultIds = [];
     Logger.info('ProviderManager: all provider data cleared.');
   }
 
@@ -123,8 +192,15 @@ export class ProviderManager {
     const errors: string[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
-      if (!adapter || !adapter.call) {
-        log?.(`${provider.name}: no adapter implementation registered for '${provider.adapterId}', skipping.`, 'warn');
+      // Priority 4: validate endpoint, model/adapter, auth/API key, and
+      // timeout BEFORE attempting the call, with a clear reason recorded
+      // per-provider instead of only ever seeing a raw fetch error (or a
+      // provider being silently skipped with no explanation at all).
+      const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
+      if (!validation.valid) {
+        const reason = validation.errors.join(' ');
+        log?.(`${provider.name}: skipped — ${reason}`, 'warn');
+        errors.push(`${provider.name}: ${reason}`);
         continue;
       }
       log?.(`Trying ${provider.name}…`);
@@ -139,7 +215,7 @@ export class ProviderManager {
           options.model && provider.adapterId === options.modelAdapterHint
             ? options.model
             : provider.defaultModel;
-        const result = await adapter.call(provider, input, {
+        const result = await adapter!.call!(provider, input, {
           ...options,
           model: modelForThisProvider,
           mode: provider.type,
@@ -185,10 +261,16 @@ export class ProviderManager {
     const errors: string[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
-      if (!adapter || !adapter.call) continue;
+      const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
+      if (!validation.valid) {
+        const reason = validation.errors.join(' ');
+        log?.(`${provider.name}: skipped — ${reason}`, 'warn');
+        errors.push(`${provider.name}: ${reason}`);
+        continue;
+      }
       log?.(`Analyzing image with ${provider.name}…`);
       try {
-        const result = await adapter.call(
+        const result = await adapter!.call!(
           provider,
           { prompt, imageBase64 },
           { model: provider.defaultModel, mode: 'vision' }

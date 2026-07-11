@@ -94,7 +94,7 @@ export class AgentsMode extends Mode {
       this.renderPipelineSteps();
     });
 
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleGenerate());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleGenerate()));
 
     // Initial render
     this.renderPersonas();

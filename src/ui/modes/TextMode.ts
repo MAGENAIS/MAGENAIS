@@ -1,12 +1,10 @@
 import { Mode } from './Mode';
-import { Button } from '../components/Button';
 import { ChipGroup } from '../components/ChipGroup';
 import { EventBus } from '../../core/EventBus';
 import { wireMicButton } from '../VoiceInput';
 
 export class TextMode extends Mode {
   private promptInput: HTMLTextAreaElement | null = null;
-  private generateBtn: Button | null = null;
 
   activate(): void {
     // Build control panel
@@ -51,16 +49,7 @@ export class TextMode extends Mode {
     this.promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
     const runBtn = document.getElementById('runBtn');
     if (runBtn) {
-      this.generateBtn = new Button(
-        runBtn.parentElement!, // container is the parent
-        '▸ Generate',
-        'primary',
-        false,
-        () => this.handleGenerate()
-      );
-      // Replace the placeholder button with our component
-      // For simplicity, we can keep the existing button and attach event listener.
-      runBtn.addEventListener('click', () => this.handleGenerate());
+      runBtn.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleGenerate()));
     }
 
     // Temperature slider

@@ -92,7 +92,23 @@ export class WorkflowEngine {
       let cacheHit = false;
 
       // Check cache
-      const cacheKey = node.cacheKey || `${nodeId}:${JSON.stringify(node.config)}:${JSON.stringify(Array.from(outputs.entries()))}`;
+      //
+      // ROOT CAUSE (Priority 1 — "Generate only works once"): every mode
+      // builds its workflow with a fixed node id per modality (e.g. 'text1',
+      // 'img1', 'research1', ...) and a `node.config` that only carries UI
+      // option state (model, temperature, sliders, ...) — the user's actual
+      // prompt/text/file lives in `node.inputs` / `context.inputs`, which are
+      // resolved separately by each executor. The cache key below previously
+      // omitted those inputs entirely, so two calls with the *same node id
+      // and same options but a different prompt* hashed to the *same cache
+      // key* and the engine's shared, kernel-lifetime `this.cache` returned
+      // the first run's stale output forever after — visible to the user as
+      // "clicking Generate again does nothing" even though the promise chain
+      // itself completed fine. Including the resolved inputs (and the raw
+      // workflow-level inputs, for nodes with no incoming edges) in the key
+      // ensures a new prompt/file always produces a fresh cache key.
+      const resolvedInputs = GraphUtils.resolveInputs(node, outputs, context.inputs);
+      const cacheKey = node.cacheKey || `${nodeId}:${JSON.stringify(node.config)}:${JSON.stringify(resolvedInputs)}`;
       if (this.cache.has(cacheKey)) {
         output = this.cache.get(cacheKey);
         cacheHit = true;

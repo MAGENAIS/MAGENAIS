@@ -102,7 +102,7 @@ export class AudioMode extends Mode {
     const durVal = document.getElementById('audioDurationVal') as HTMLElement;
     durSlider?.addEventListener('input', () => { if (durVal) durVal.textContent = durSlider.value + 's'; });
 
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleGenerate());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleGenerate()));
   }
 
   private wireModeChips(): void {

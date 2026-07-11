@@ -31,7 +31,7 @@ export class DataMode extends Mode {
     `);
 
     this.wireDropzone();
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleGenerate());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleGenerate()));
   }
 
   private wireDropzone(): void {

@@ -40,7 +40,7 @@ export class DocMode extends Mode {
         if (field) field.style.display = isQa ? '' : 'none';
       });
     });
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleRun());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleRun()));
   }
 
   private wireDropzone(): void {

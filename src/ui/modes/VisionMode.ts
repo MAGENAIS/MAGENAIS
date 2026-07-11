@@ -49,7 +49,7 @@ export class VisionMode extends Mode {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) this.analyzeUploadedFile(file);
     });
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleAnalyze());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleAnalyze()));
     document.getElementById('visionLiveToggle')?.addEventListener('change', (e) => {
       this.toggleLiveMode((e.target as HTMLInputElement).checked);
     });

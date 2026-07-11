@@ -60,7 +60,7 @@ export class ImageMode extends Mode {
 
     this.wireChips();
     const runBtn = document.getElementById('runBtn');
-    runBtn?.addEventListener('click', () => this.handleGenerate());
+    runBtn?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleGenerate()));
   }
 
   private wireChips(): void {
@@ -117,7 +117,7 @@ export class ImageMode extends Mode {
               <button class="ghost-btn" id="regenBtn">Regenerate</button>
             </div>
           </div>`;
-        document.getElementById('regenBtn')?.addEventListener('click', () => this.handleGenerate());
+        document.getElementById('regenBtn')?.addEventListener('click', () => this.runGuarded('regenBtn', () => this.handleGenerate()));
       }
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'image', prompt: finalPrompt, result: url, resultType: 'image',

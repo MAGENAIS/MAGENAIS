@@ -43,7 +43,7 @@ export class ResearchMode extends Mode {
       if (val) val.textContent = countInput.value;
     });
 
-    document.getElementById('runBtn')?.addEventListener('click', () => this.handleRun());
+    document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleRun()));
   }
 
   private async handleRun(): Promise<void> {
