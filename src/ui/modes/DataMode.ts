@@ -134,6 +134,9 @@ export class DataMode extends Mode {
         };
         const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.parsedData, prompt });
         aiText = result.finalOutput;
+        this.kernel.getStore().getActions().addHistoryEntry({
+          mode: 'data', prompt, result: aiText, resultType: 'text',
+        });
       }
       // Render result with stats, chart, AI text
       this.renderDataResult(stats, chartData, aiText);
