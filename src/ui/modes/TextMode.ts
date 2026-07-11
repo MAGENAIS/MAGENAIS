@@ -2,6 +2,7 @@ import { Mode } from './Mode';
 import { Button } from '../components/Button';
 import { ChipGroup } from '../components/ChipGroup';
 import { EventBus } from '../../core/EventBus';
+import { wireMicButton } from '../VoiceInput';
 
 export class TextMode extends Mode {
   private promptInput: HTMLTextAreaElement | null = null;
@@ -71,13 +72,14 @@ export class TextMode extends Mode {
       });
     }
 
-    // Mic button (simplified)
+    // Mic button — browser speech recognition, falling back to the audio
+    // provider chain (see src/ui/VoiceInput.ts)
     const micBtn = document.getElementById('micBtn');
+    const micStatus = document.getElementById('micStatus');
     if (micBtn) {
-      micBtn.addEventListener('click', () => {
-        // We'll use the existing mic logic from the legacy code or implement new
-        // For now, just a placeholder.
-        alert('Mic not implemented in refactored UI yet');
+      wireMicButton(this.kernel, micBtn, micStatus, (transcript) => {
+        const input = this.promptInput || (document.getElementById('promptInput') as HTMLTextAreaElement);
+        if (input) input.value = (input.value ? input.value + ' ' : '') + transcript;
       });
     }
   }
@@ -148,6 +150,9 @@ export class TextMode extends Mode {
         stage.innerHTML = `<div class="result-text">${output}</div>`;
         // Add copy/play buttons (similar to legacy)
       }
+      this.kernel.getStore().getActions().addHistoryEntry({
+        mode: 'text', prompt, result: output, resultType: 'text',
+      });
     } catch (err: any) {
       if (stage) {
         stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
