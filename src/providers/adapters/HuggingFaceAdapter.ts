@@ -21,6 +21,20 @@ export class HuggingFaceAdapter extends BaseAdapter {
 
     switch (pipelineType) {
       case 'text':
+      // ROOT CAUSE: the built-in "Hugging Face (Research)" preset provider
+      // (type: 'research') exists specifically to "reuse the Hugging Face
+      // text pipeline for research/summarization-style prompts" — that's
+      // its own `notes` field, verbatim. But this switch never actually
+      // had a case for 'research' (or 'coding'/'agents'/'gamegen', for
+      // anyone who points a custom provider of those types at this
+      // adapter), so every call fell through to the `default` throw
+      // regardless of API key. OpenAICompatibleAdapter already routes
+      // these the same way callText does here — this just brings HF's
+      // adapter in line with that existing, working pattern.
+      case 'research':
+      case 'coding':
+      case 'agents':
+      case 'gamegen':
         return this.callText(provider, model, input, options);
       case 'image':
         return this.callImage(provider, model, input, options);

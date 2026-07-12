@@ -183,8 +183,20 @@ export class GameGenNodeExecutor extends BaseNodeExecutor {
         previousCode: node.config?.previousCode,
       },
       context.log || (() => {}),
-      // Text generation for both agent stages goes through the same fallback chain as any text node.
-      (prompt: string, opts?: Record<string, any>) => this.callProvider(node, { prompt }, context, opts)
+      // ROOT CAUSE (same class as DocNodeExecutor/DataNodeExecutor below):
+      // game generation is an LLM text-generation task (writing HTML/JS),
+      // not a distinct modality — but without the 'text' override here,
+      // callProvider defaulted to node.type ('gamegen'), a NodeType with
+      // only one built-in provider (disabled, empty baseUrl — a template
+      // for a dedicated game-gen endpoint, not something that works out of
+      // the box). That meant this always failed with "no provider for
+      // 'gamegen'" even when perfectly good text providers were configured
+      // and enabled — which is exactly what this callback's own comment
+      // ("goes through the same fallback chain as any text node") already
+      // said should happen. If a user configures a real dedicated
+      // 'gamegen' provider, `opts` can still be used to target it
+      // explicitly in the future; for now this makes the common case work.
+      (prompt: string, opts?: Record<string, any>) => this.callProvider(node, { prompt }, context, opts, 'text')
     );
     return html;
   }
@@ -206,7 +218,9 @@ export class DataNodeExecutor extends BaseNodeExecutor {
     const question = node.config?.prompt || node.config?.question;
     if (question) {
       const analysisPrompt = `Given this spreadsheet data (headers: ${parsed.headers.join(', ')}; ${parsed.rows.length} rows), answer: "${question}"\n\nSummary stats: ${JSON.stringify(stats).slice(0, 4000)}`;
-      const analysis = await this.callProvider(node, { prompt: analysisPrompt }, context);
+      // Same root cause/fix as DocNodeExecutor below: 'data' is a valid
+      // NodeType but was never a valid ProviderType — route through 'text'.
+      const analysis = await this.callProvider(node, { prompt: analysisPrompt }, context, {}, 'text');
       return analysis; // finalOutput consumed directly as text by DataMode
     }
     return { ...parsed, stats };

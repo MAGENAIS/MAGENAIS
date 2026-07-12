@@ -93,23 +93,29 @@ export class WorkflowEngine {
 
       // Check cache
       //
-      // ROOT CAUSE (Priority 1 — "Generate only works once"): every mode
-      // builds its workflow with a fixed node id per modality (e.g. 'text1',
-      // 'img1', 'research1', ...) and a `node.config` that only carries UI
-      // option state (model, temperature, sliders, ...) — the user's actual
-      // prompt/text/file lives in `node.inputs` / `context.inputs`, which are
-      // resolved separately by each executor. The cache key below previously
-      // omitted those inputs entirely, so two calls with the *same node id
-      // and same options but a different prompt* hashed to the *same cache
-      // key* and the engine's shared, kernel-lifetime `this.cache` returned
-      // the first run's stale output forever after — visible to the user as
-      // "clicking Generate again does nothing" even though the promise chain
-      // itself completed fine. Including the resolved inputs (and the raw
-      // workflow-level inputs, for nodes with no incoming edges) in the key
-      // ensures a new prompt/file always produces a fresh cache key.
-      const resolvedInputs = GraphUtils.resolveInputs(node, outputs, context.inputs);
-      const cacheKey = node.cacheKey || `${nodeId}:${JSON.stringify(node.config)}:${JSON.stringify(resolvedInputs)}`;
-      if (this.cache.has(cacheKey)) {
+      // Caching here is intentionally OPT-IN (only when a node explicitly
+      // sets node.cacheKey), not automatic. Two reasons this changed from
+      // an earlier, content-based default key:
+      //
+      // 1) Correctness: the cache used to key only on `${nodeId}:config`,
+      //    ignoring node.inputs entirely — since every mode reuses the
+      //    same node id and config on every click, a SECOND click with a
+      //    DIFFERENT prompt still hit the cache and silently replayed the
+      //    FIRST click's stale output ("Generate only works once").
+      // 2) Even after fixing #1 to key on the resolved inputs too, an
+      //    IDENTICAL repeat request (e.g. clicking Image mode's
+      //    "Regenerate" without changing the prompt) would then
+      //    legitimately cache-hit — but for generative media (image,
+      //    video, audio, music, game) that's exactly backwards: the whole
+      //    point of Regenerate is a fresh, differently-seeded result from
+      //    the same prompt, not a memoized replay. Content-based caching
+      //    is fundamentally the wrong default for non-deterministic
+      //    generation, and no mode currently opts in via node.cacheKey —
+      //    so removing the implicit default means every Generate/Regenerate
+      //    click across every tab now always executes fresh, which matches
+      //    what users actually expect from a "Generate" button.
+      const cacheKey = node.cacheKey;
+      if (cacheKey && this.cache.has(cacheKey)) {
         output = this.cache.get(cacheKey);
         cacheHit = true;
         Logger.debug(`Cache hit for node ${nodeId}`);
@@ -155,8 +161,8 @@ export class WorkflowEngine {
           status = 'failed';
           error = lastError?.message || 'Unknown error';
           failed.add(nodeId);
-        } else {
-          // Store in cache
+        } else if (cacheKey) {
+          // Store in cache — only reached when a node explicitly opted in.
           this.cache.set(cacheKey, output);
         }
       }

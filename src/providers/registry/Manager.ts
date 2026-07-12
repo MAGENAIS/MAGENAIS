@@ -68,6 +68,7 @@ export class ProviderManager {
 
     const isFirstLaunch = stored.length === 0 && seededDefaultIds.length === 0;
     const seededSet = new Set(seededDefaultIds);
+    const defaultsById = new Map<string, ProviderConfig>(defaultProviders.map(p => [p.id, p]));
 
     // Merge: stored providers override defaults by id, but we also add any
     // DEFAULT provider that has never been seeded before (first launch, or
@@ -84,6 +85,26 @@ export class ProviderManager {
     // Then override with stored (keep stored API keys, enabled status, etc.)
     stored.forEach(p => {
       const existing = mergedMap.get(p.id);
+      // One-time, narrowly-scoped migration: models.inference.ai.azure.com
+      // (the old GitHub Models endpoint) was deprecated 2025-07-17 and
+      // fully decommissioned 2025-10-17 — every request to it now fails
+      // auth (401 "Bad credentials") regardless of key validity. A stored
+      // provider pointing at that *exact* URL is unambiguously a stale
+      // built-in default seeded before this fix, not a deliberate user
+      // customization (nobody hand-types a decommissioned Microsoft
+      // endpoint), so it's safe to auto-correct here — unlike the general
+      // "never overwrite user settings" rule this loop otherwise follows.
+      // Looked up from `defaultsById` (the raw default list) rather than
+      // `mergedMap`, because on a normal "already seeded, second boot"
+      // this id was deliberately left OUT of mergedMap above (to avoid
+      // resurrecting user-deleted defaults) — `existing` here would always
+      // be undefined otherwise, silently skipping the migration in the
+      // exact case it needs to run.
+      const trueDefault = defaultsById.get(p.id);
+      if (p.baseUrl === 'https://models.inference.ai.azure.com' && trueDefault) {
+        p = { ...p, baseUrl: trueDefault.baseUrl, defaultModel: trueDefault.defaultModel };
+        Logger.info(`ProviderManager: migrated "${p.name}" off the decommissioned GitHub Models endpoint.`);
+      }
       if (existing) {
         // Merge: stored values take precedence, but we keep the id and type from default if missing
         mergedMap.set(p.id, { ...existing, ...p });
@@ -247,14 +268,26 @@ export class ProviderManager {
     router: SmartRouter,
     log?: (message: string, level?: 'info' | 'warn' | 'error') => void
   ): Promise<string> {
-    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini'];
+    // Anthropic and Gemini's own adapters always speak their native
+    // multimodal format. Beyond those two, OpenAICompatibleAdapter now
+    // also builds the standard image_url content block (see that file),
+    // so any provider routed through it (OpenRouter, GitHub Models, Groq,
+    // etc.) is a valid vision candidate too — whether it actually works
+    // depends on whether the *model* the user picked for that provider
+    // supports image input, which the fallback chain below surfaces as a
+    // clear per-provider error rather than pretending only two providers
+    // could ever work.
+    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'openai-compatible'];
     const candidates = router
       .getSortedProviders('text')
       .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey));
 
     if (candidates.length === 0) {
       throw new Error(
-        "No vision-capable provider is configured — add an API key for Anthropic (Claude) or Google Gemini in Keys & Providers. Both support image understanding using the same key you'd use for text generation."
+        "No vision-capable provider is configured — add an API key for a provider whose model supports image " +
+        "understanding (Anthropic Claude, Google Gemini, OpenAI, or another OpenAI-compatible provider such as " +
+        "OpenRouter/GitHub Models using a vision-capable model, e.g. gpt-4o) in Keys & Providers. " +
+        "This uses the same key/provider you'd use for text generation."
       );
     }
 

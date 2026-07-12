@@ -14,7 +14,7 @@ export interface PodcastOptions {
 }
 
 export interface PodcastResult {
-  url: string;
+  url: string | null;
   script: string;
   lineCount: number;
   skippedLiveOnlyCount: number;
@@ -218,9 +218,22 @@ export async function generatePodcast(
   }
 
   if (recordableUrls.length === 0) {
-    throw new Error(
-      'No lines could be recorded into a downloadable file — no enabled, keyed speech provider succeeded. Add an API key for at least one speech provider in Keys & Providers to get a downloadable podcast.'
+    // ROOT CAUSE (reported: "podcast plays system sound then stops, no
+    // downloadable file, and no text shown"): the browser-speech fallback
+    // DOES speak each line aloud as an interactive preview (that's the
+    // "system sound" the user hears) — it just can't produce a
+    // downloadable audio blob, because speechSynthesis has no capture API.
+    // Throwing here discarded the perfectly good generated `script` along
+    // with the audio, so the user was left with nothing but a bare error
+    // even though real, usable text had already been produced (and paid
+    // for, if a text provider was used). Return it instead of throwing, so
+    // the UI can still show the script and explain why there's no file.
+    log(
+      'No lines could be recorded into a downloadable file — no enabled, keyed speech provider succeeded. ' +
+      'Showing the generated script; add an API key for at least one speech provider in Keys & Providers to get a downloadable podcast.',
+      'warn'
     );
+    return { url: null, script, lineCount: lines.length, skippedLiveOnlyCount };
   }
 
   log(`Stitching ${recordableUrls.length} clip(s) into one file…`);

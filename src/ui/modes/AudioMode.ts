@@ -288,13 +288,22 @@ export class AudioMode extends Mode {
           this.kernel.getRouter()
         );
         if (stage) {
+          const audioBlock = result.url
+            ? `<div class="result-media" style="margin-bottom:18px;">
+                 <audio src="${result.url}" controls autoplay></audio>
+                 <div class="result-actions">
+                   <a href="${result.url}" download="magen-podcast.wav"><button class="ghost-btn">Download Podcast (.wav)</button></a>
+                 </div>
+               </div>`
+            : `<div class="empty-glyph" style="color:var(--rust);">!</div>
+               <div class="empty-text" style="margin-bottom:18px;">
+                 No downloadable audio file — no enabled, keyed speech provider succeeded
+                 (the script below was spoken aloud using your browser's built-in voice as a
+                 preview only, which can't be saved to a file). Add an API key for at least
+                 one speech provider in Keys &amp; Providers to get a downloadable .wav.
+               </div>`;
           stage.innerHTML = `
-            <div class="result-media" style="margin-bottom:18px;">
-              <audio src="${result.url}" controls autoplay></audio>
-              <div class="result-actions">
-                <a href="${result.url}" download="magen-podcast.wav"><button class="ghost-btn">Download Podcast (.wav)</button></a>
-              </div>
-            </div>
+            ${audioBlock}
             <p class="field-label">Script (${result.lineCount} lines)</p>
             <div class="doc-summary-block"><div class="result-text">${result.script}</div></div>
             <div class="result-actions">
@@ -305,7 +314,7 @@ export class AudioMode extends Mode {
           });
         }
         this.kernel.getStore().getActions().addHistoryEntry({
-          mode: 'podcast', prompt, result: result.url, resultType: 'audio',
+          mode: 'podcast', prompt, result: result.url || result.script, resultType: result.url ? 'audio' : 'text',
         });
       }
     } catch (err: any) {

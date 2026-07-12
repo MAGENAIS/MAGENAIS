@@ -44,15 +44,22 @@ async function main() {
 
   const first = await engine.execute(buildWorkflow('first prompt') as any, { prompt: 'first prompt' });
   const second = await engine.execute(buildWorkflow('second prompt') as any, { prompt: 'second prompt' });
+  // "Regenerate" click: identical prompt/config to the previous call. This
+  // must also execute fresh (e.g. image generation should return a new
+  // variation), not replay whatever was cached from an earlier identical
+  // call — caching is opt-in only now, so this always re-runs.
+  const third = await engine.execute(buildWorkflow('second prompt') as any, { prompt: 'second prompt' });
 
   console.log('first.finalOutput  =', first.finalOutput);
   console.log('second.finalOutput =', second.finalOutput);
+  console.log('third.finalOutput  =', third.finalOutput, '(Regenerate, identical inputs to `second`)');
   console.log('executor call count =', callCount);
 
   const pass =
     first.finalOutput === 'echo:first prompt' &&
     second.finalOutput === 'echo:second prompt' &&
-    callCount === 2;
+    third.finalOutput === 'echo:second prompt' &&
+    callCount === 3;
 
   console.log(pass ? '\nPASS: second Generate click returns a fresh result, not the first click\'s cached output.'
                     : '\nFAIL: stale-cache bug is still present.');

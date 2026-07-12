@@ -25,6 +25,7 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
       case 'coding':
       case 'agents':
       case 'research':
+      case 'vision':
         return this.callText(provider, input, options);
       case 'image':
         return this.callImage(provider, input, options);
@@ -58,12 +59,31 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
 
   async callText(provider: ProviderConfig, input: any, options?: any): Promise<string> {
     const endpoint = options?.endpoint || '/chat/completions';
+    // Vision support: when callVision passes imageBase64, build the
+    // standard multimodal `content: [{type:'text'},{type:'image_url'}]`
+    // message shape most OpenAI-compatible chat/completions backends
+    // accept (OpenRouter, GitHub Models' gpt-4o, Groq's llama-vision
+    // models, etc.) — this is what lets Vision mode work through any
+    // configured OpenAI-compatible provider with a vision-capable model,
+    // not just the Anthropic/Gemini-specific adapters.
+    const imageBase64: string | undefined = input?.imageBase64 ?? options?.imageBase64;
+    const messages =
+      options?.messages ||
+      (imageBase64
+        ? [{
+            role: 'user',
+            content: [
+              { type: 'text', text: input?.prompt ?? '' },
+              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            ],
+          }]
+        : [{ role: 'user', content: input?.prompt ?? input }]);
     const response = await this.request(provider, this.url(provider, endpoint), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: options?.model || provider.defaultModel || 'default',
-        messages: options?.messages || [{ role: 'user', content: input?.prompt ?? input }],
+        messages,
         temperature: options?.temperature ?? 0.8,
         max_tokens: options?.maxTokens ?? 1024,
       }),

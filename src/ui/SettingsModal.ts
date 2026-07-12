@@ -148,12 +148,23 @@ export class SettingsModal {
       const row = document.createElement('div');
       row.className = 'provider-row';
 
-      const statusColor = p.enabled ? 'var(--moss)' : 'var(--ink-faint)';
+      // ROOT CAUSE (reported: "many providers checked/green while not set
+      // yet"): this used to color the name green purely from `p.enabled`
+      // (the fallback-rotation toggle), regardless of whether the provider
+      // actually has a key and can ever be called. Nearly every built-in
+      // preset ships `enabled: true` by design (so it activates the moment
+      // a key is added, with no second toggle to remember) — but that made
+      // an entirely unconfigured install look like a wall of ready, green
+      // providers. Color now reflects real usability: green only when it
+      // can actually be called right now; amber for "enabled but missing
+      // its key"; gray for actually disabled.
+      const isUsable = p.enabled && (p.noKeyNeeded || !!p.apiKey);
+      const statusColor = isUsable ? 'var(--moss)' : p.enabled ? 'var(--rust)' : 'var(--ink-faint)';
       const keyStatus = p.noKeyNeeded
         ? '<span class="key-status set">no key needed</span>'
         : p.apiKey
           ? '<span class="key-status set">key set</span>'
-          : '<span class="key-status unset">no key set</span>';
+          : '<span class="key-status unset">no key set — add one below to activate</span>';
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
 
       row.innerHTML = `
