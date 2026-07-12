@@ -269,25 +269,28 @@ export class ProviderManager {
     log?: (message: string, level?: 'info' | 'warn' | 'error') => void
   ): Promise<string> {
     // Anthropic and Gemini's own adapters always speak their native
-    // multimodal format. Beyond those two, OpenAICompatibleAdapter now
-    // also builds the standard image_url content block (see that file),
-    // so any provider routed through it (OpenRouter, GitHub Models, Groq,
-    // etc.) is a valid vision candidate too — whether it actually works
-    // depends on whether the *model* the user picked for that provider
-    // supports image input, which the fallback chain below surfaces as a
-    // clear per-provider error rather than pretending only two providers
-    // could ever work.
-    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'openai-compatible'];
+    // multimodal format. 'puter' is included because Puter.js genuinely
+    // supports image analysis with zero API key (puter.ai.chat(prompt,
+    // imageUrl, opts) — see PuterAdapter.vision) — this is what gives
+    // Vision mode a real no-setup path instead of requiring a paid
+    // provider key. Beyond those, OpenAICompatibleAdapter also builds the
+    // standard image_url content block (see that file), so any provider
+    // routed through it (OpenRouter, GitHub Models, Groq, etc.) is a valid
+    // vision candidate too — whether it actually works depends on whether
+    // the *model* the user picked for that provider supports image input,
+    // which the fallback chain below surfaces as a clear per-provider
+    // error rather than pretending only a fixed list could ever work.
+    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible'];
     const candidates = router
       .getSortedProviders('text')
       .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey));
 
     if (candidates.length === 0) {
       throw new Error(
-        "No vision-capable provider is configured — add an API key for a provider whose model supports image " +
-        "understanding (Anthropic Claude, Google Gemini, OpenAI, or another OpenAI-compatible provider such as " +
-        "OpenRouter/GitHub Models using a vision-capable model, e.g. gpt-4o) in Keys & Providers. " +
-        "This uses the same key/provider you'd use for text generation."
+        "No vision-capable provider is configured or enabled — enable \"Puter.js (optional, no key)\" in Keys & Providers " +
+        "for a genuine zero-setup option, or add an API key for a provider whose model supports image understanding " +
+        "(Anthropic Claude, Google Gemini, OpenAI, or another OpenAI-compatible provider such as OpenRouter/GitHub " +
+        "Models using a vision-capable model, e.g. gpt-4o)."
       );
     }
 

@@ -281,7 +281,13 @@ export class CodingNodeExecutor extends BaseNodeExecutor {
     // capable text model can write code — this mirrors how the legacy
     // monolith's "qwen-coder" was just one alias within the same text pipeline,
     // not a separate provider category.
-    return this.callProvider(node, { prompt }, context, { model: node.config?.model });
+    // NOTE: this comment described the above intent from the start, but the
+    // call below was missing the actual providerTypeOverride argument, so it
+    // silently fell back to node.type ('coding') anyway — the ONE sparse,
+    // keyed 'coding'-type preset — regardless of how many text providers
+    // (including free/no-key ones) were configured. Fixed to actually pass
+    // 'text', matching what the comment above always said it should do.
+    return this.callProvider(node, { prompt }, context, { model: node.config?.model }, 'text');
   }
 }
 

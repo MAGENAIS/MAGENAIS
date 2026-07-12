@@ -1,4 +1,5 @@
 import { Mode } from './Mode';
+import { NODE_PRIMARY_INPUT_KEY } from '../../workflows/nodeInputKeys';
 
 export class AgentsMode extends Mode {
   private personas: any[] = [];
@@ -148,7 +149,14 @@ export class AgentsMode extends Mode {
     const list = document.getElementById('pipelineStepList') as HTMLElement;
     if (!list) return;
     list.innerHTML = '';
-    const typeOptions = ['research', 'text', 'doc-summarize', 'image', 'audio'].map(t =>
+    // Every type here must (a) be a real NodeType the engine can execute,
+    // and (b) accept a plain text prompt as its primary input, since that's
+    // the only input field this step UI offers. 'doc-summarize' was never a
+    // valid NodeType (the engine has no executor for it — every step using
+    // it failed outright); 'audio' is speech-to-text, which needs an audio
+    // FILE as input, not a text prompt, so it never made sense here either.
+    // 'speech' (text-to-speech) fits the same shape as the others.
+    const typeOptions = ['research', 'text', 'coding', 'image', 'speech', 'gamegen'].map(t =>
       `<option value="${t}">${t}</option>`
     ).join('');
     this.pipelineSteps.forEach((step, idx) => {
@@ -216,14 +224,33 @@ export class AgentsMode extends Mode {
       // We'll use the workflow engine's ability to chain nodes.
       // For simplicity, we'll create a single workflow with all steps as separate nodes, connected in series.
       const graph = {
-        nodes: this.pipelineSteps.map((step, idx) => ({
-          id: step.id || 'step-' + idx,
-          type: step.modeType as any,
-          label: `Step ${idx+1}`,
-          config: { model: 'openai', temp: 0.7 },
-          inputs: { prompt: step.promptTemplate },
-          enabled: true,
-        })),
+        nodes: this.pipelineSteps.map((step, idx) => {
+          const nodeId = step.id || 'step-' + idx;
+          const prevId = idx > 0 ? (this.pipelineSteps[idx - 1].id || 'step-' + (idx - 1)) : null;
+          // ROOT CAUSE (reported: Agents tab shows no real result): the
+          // step-editor UI explicitly tells users to type "{{previous}}"
+          // to reference the prior step's output (see renderPipelineSteps'
+          // placeholder text/label above) — but this builder used to send
+          // step.promptTemplate to the LLM completely verbatim, so
+          // "{{previous}}" was never substituted with anything; the model
+          // just saw the literal text "{{previous}}". Translating it into
+          // the engine's own `${nodeId}` reference syntax (now supported
+          // even embedded inside a larger string — see
+          // GraphUtils.resolveInputs) makes the documented placeholder
+          // actually work.
+          const promptWithRefs = prevId
+            ? step.promptTemplate.replace(/\{\{\s*previous\s*\}\}/gi, `\${${prevId}}`)
+            : step.promptTemplate;
+          const inputKey = NODE_PRIMARY_INPUT_KEY[step.modeType as import('../../workflows/types').NodeType] || 'prompt';
+          return {
+            id: nodeId,
+            type: step.modeType as any,
+            label: `Step ${idx + 1}`,
+            config: { model: 'openai', temp: 0.7 },
+            inputs: { [inputKey]: promptWithRefs },
+            enabled: true,
+          };
+        }),
         edges: this.pipelineSteps.slice(1).map((step, idx) => ({
           from: this.pipelineSteps[idx].id || 'step-' + idx,
           to: step.id || 'step-' + (idx+1),
@@ -241,9 +268,36 @@ export class AgentsMode extends Mode {
       let html = '';
       result.nodeResults.forEach((nr, idx) => {
         const step = this.pipelineSteps[idx];
+        const personaLabel = step.personaId ? ' (' + (this.personas.find(p=>p.id===step.personaId)?.name || '') + ')' : '';
+        let body: string;
+        if (nr.status === 'failed') {
+          const div = document.createElement('div');
+          div.textContent = nr.error || 'unknown error';
+          body = `<div class="result-text" style="color:var(--rust);">Failed: ${div.innerHTML}</div>`;
+        } else if (typeof nr.output === 'string' && nr.output.startsWith('blob:')) {
+          body = step.modeType === 'image'
+            ? `<div class="result-media"><img src="${nr.output}" style="max-height:220px; border-radius:var(--radius);"></div>`
+            : `<div class="result-media"><audio src="${nr.output}" controls></audio></div>`;
+        } else {
+          // ROOT CAUSE (reported: Agents tab always shows "[object
+          // Object]" instead of a result): this used to interpolate
+          // `nr.output` directly into a template literal — fine for a
+          // string, but for any structured result (an object, an
+          // {url:...} media reference, etc.) JS's implicit toString()
+          // coercion on a plain object literally produces the string
+          // "[object Object]". Render text as text, and stringify
+          // anything else properly instead of relying on that coercion.
+          const div = document.createElement('div');
+          div.textContent = typeof nr.output === 'string'
+            ? nr.output
+            : (nr.output && typeof nr.output === 'object' && typeof (nr.output as any).url === 'string')
+              ? (nr.output as any).url
+              : JSON.stringify(nr.output, null, 2);
+          body = `<div class="result-text">${div.innerHTML}</div>`;
+        }
         html += `<div class="doc-summary-block" style="margin-bottom:16px;">
-          <p class="field-label" style="margin-bottom:6px;">Step ${idx+1} — ${step.modeType}${step.personaId ? ' (' + (this.personas.find(p=>p.id===step.personaId)?.name || '') + ')' : ''}</p>
-          <div class="result-text">${nr.output}</div>
+          <p class="field-label" style="margin-bottom:6px;">Step ${idx+1} — ${step.modeType}${personaLabel}</p>
+          ${body}
         </div>`;
       });
       if (stage) stage.innerHTML = html;

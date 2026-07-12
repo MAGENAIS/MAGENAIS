@@ -167,14 +167,15 @@ export class SettingsModal {
           : '<span class="key-status unset">no key set — add one below to activate</span>';
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
 
+      const canToggle = p.noKeyNeeded || p.isBuiltIn || !!p.apiKey;
       row.innerHTML = `
         <div class="provider-row-top">
           <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
             <span class="provider-name" style="color:${statusColor};">${escapeHtml(p.name)}</span>
             <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}</span>
           </div>
-          <label style="display:flex; align-items:center; gap:5px; cursor:pointer; flex-shrink:0;">
-            <input type="checkbox" data-action="toggle" ${p.enabled ? 'checked' : ''} style="width:auto;">
+          <label style="display:flex; align-items:center; gap:5px; cursor:${canToggle ? 'pointer' : 'not-allowed'}; flex-shrink:0;" ${canToggle ? '' : 'title="Add an API key below to enable this provider"'}>
+            <input type="checkbox" data-action="toggle" ${(canToggle && p.enabled) ? 'checked' : ''} ${canToggle ? '' : 'disabled'} style="width:auto;">
           </label>
         </div>
         ${p.noKeyNeeded ? '' : `

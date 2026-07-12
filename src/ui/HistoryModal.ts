@@ -89,7 +89,9 @@ export class HistoryModal {
         preview = `<img src="${entry.result}" style="max-height:64px; border-radius:4px; margin-top:6px;">`;
       } else if (entry.resultType === 'video' && typeof entry.result === 'string') {
         preview = `<video src="${entry.result}" style="max-height:64px; border-radius:4px; margin-top:6px;" muted></video>`;
-      } else if (typeof entry.result === 'string') {
+      } else if (entry.resultType === 'audio' && typeof entry.result === 'string') {
+        preview = `<audio src="${entry.result}" controls style="height:32px; margin-top:6px; max-width:100%;"></audio>`;
+      } else if (typeof entry.result === 'string' && !entry.result.startsWith('data:')) {
         preview = `<div class="provider-meta" style="margin-top:4px; -webkit-line-clamp:2; display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden;">${escapeHtml(entry.result.slice(0, 180))}</div>`;
       }
 

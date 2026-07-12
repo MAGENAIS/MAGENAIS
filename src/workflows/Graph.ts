@@ -116,10 +116,57 @@ export class GraphUtils {
     return graph.nodes.filter(n => !hasOutgoing.has(n.id));
   }
 
+  // Node types whose designated input genuinely IS a media reference
+  // (an image to look at, an audio clip to transcribe) rather than
+  // natural-language text — everything else expects text.
+  private static readonly MEDIA_CONSUMING_TYPES = new Set(['vision', 'audio', 'video']);
+
+  /**
+   * True for values that reference generated media (a blob: URL from
+   * URL.createObjectURL, a data: URI, or an {url: ...} result object) as
+   * opposed to plain text output.
+   */
+  private static isMediaReference(value: any): boolean {
+    if (typeof value === 'string') {
+      return value.startsWith('blob:') || value.startsWith('data:');
+    }
+    if (value && typeof value === 'object' && typeof value.url === 'string') {
+      return value.url.startsWith('blob:') || value.url.startsWith('data:') || /^https?:\/\//.test(value.url);
+    }
+    return false;
+  }
+
   /**
    * Resolve input references: given a node's input mapping and a map of outputs from executed nodes,
    * produce the actual input values.
+   *
+   * ROOT CAUSE (reported: workflow chaining an Image step into a Text step
+   * made the text model respond with "that's a blob URL..."): this method
+   * resolves `${nodeId}` references to whatever the upstream node actually
+   * output, with no regard for whether the downstream node's input field
+   * expects text or media. An image-generation step's output is a
+   * browser-local `blob:` URL (meaningless outside this tab, and NOT an
+   * image the text model can see) — piping that raw string into a text
+   * node's `prompt` field made the LLM receive a blob URL as its literal
+   * prompt and — quite reasonably — explain what a blob URL is. This
+   * applies generally to any media-producing step (image/video/audio/
+   * music/speech) feeding into any text-consuming step (text/research/
+   * coding/gamegen/data/doc), not just this one combination, so the fix
+   * lives here centrally rather than as a special case for one pair of
+   * step types.
    */
+  /** Safely render any node output as a string for embedding in another prompt. */
+  private static stringifyOutput(value: any): string {
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object' && typeof value.url === 'string') return value.url;
+    if (value === undefined || value === null) return '';
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
   static resolveInputs(
     node: Node,
     outputs: Map<string, any>,
@@ -127,24 +174,53 @@ export class GraphUtils {
   ): Record<string, any> {
     const resolved: Record<string, any> = {};
     const mappings = node.inputs || {};
-    for (const [key, value] of Object.entries(mappings)) {
-      if (typeof value === 'string' && value.startsWith('${') && value.endsWith('}')) {
-        // Reference: ${nodeId.output}
-        const ref = value.slice(2, -1).trim();
-        const [nodeId, ...path] = ref.split('.');
-        const output = outputs.get(nodeId);
-        if (output === undefined) {
-          throw new Error(`Output from node ${nodeId} not found for input ${key}`);
+    const expectsMedia = GraphUtils.MEDIA_CONSUMING_TYPES.has(node.type);
+    const resolveRef = (ref: string): any => {
+      const [nodeId, ...path] = ref.split('.');
+      const output = outputs.get(nodeId);
+      if (output === undefined) {
+        throw new Error(`Output from node ${nodeId} not found for input reference \${${ref}}`);
+      }
+      let result = output;
+      for (const p of path) {
+        if (result && typeof result === 'object' && p in result) {
+          result = result[p];
+        } else {
+          throw new Error(`Cannot access path ${path.join('.')} on output of node ${nodeId}`);
         }
-        let result = output;
-        for (const p of path) {
-          if (result && typeof result === 'object' && p in result) {
-            result = result[p];
-          } else {
-            throw new Error(`Cannot access path ${path.join('.')} on output of node ${nodeId}`);
-          }
+      }
+      return result;
+    };
+    const REF_RE = /\$\{([^}]+)\}/g;
+    for (const [key, value] of Object.entries(mappings)) {
+      if (typeof value === 'string' && value.startsWith('${') && value.endsWith('}') && value.indexOf('${', 2) === -1) {
+        // The ENTIRE value is exactly one reference — preserve whatever
+        // type the upstream node actually output (string, {url}, etc.)
+        // rather than coercing to a string, so downstream media-aware
+        // nodes still get a usable reference, not `"[object Object]"`.
+        let result = resolveRef(value.slice(2, -1).trim());
+        if (!expectsMedia && GraphUtils.isMediaReference(result)) {
+          result = '[The previous workflow step generated a media file (image, audio, or video) here, ' +
+            'not text — its content cannot be read directly. Continue based on the original request/context only, ' +
+            'or add a Vision step to the workflow if the content of that file needs to be analyzed.]';
         }
         resolved[key] = result;
+      } else if (typeof value === 'string' && REF_RE.test(value)) {
+        // One or more references EMBEDDED in a larger string (e.g. a
+        // user-authored template like "Summarize this: ${step1}") — every
+        // match is resolved and safely stringified, then substituted in
+        // place. This is what lets a UI offer a friendly inline
+        // placeholder (see AgentsMode's `{{previous}}`, translated to
+        // `${prevNodeId}` before reaching here) instead of requiring the
+        // whole field to be nothing but a reference.
+        REF_RE.lastIndex = 0;
+        resolved[key] = value.replace(REF_RE, (_match, ref) => {
+          let result = resolveRef(ref.trim());
+          if (!expectsMedia && GraphUtils.isMediaReference(result)) {
+            return '[a generated media file from a previous step, not readable as text]';
+          }
+          return GraphUtils.stringifyOutput(result);
+        });
       } else {
         // Static value (or directly provided)
         resolved[key] = value;

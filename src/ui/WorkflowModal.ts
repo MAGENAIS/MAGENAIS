@@ -7,23 +7,23 @@
  */
 import { Kernel } from '../core/Kernel';
 import { NodeType } from '../workflows/types';
+import { NODE_PRIMARY_INPUT_KEY } from '../workflows/nodeInputKeys';
 
 interface StepTypeDef {
   type: NodeType;
   label: string;
-  inputKey: string; // the node's primary input field name
   configFields?: Array<{ key: string; label: string; placeholder?: string }>;
 }
 
 const STEP_TYPES: StepTypeDef[] = [
-  { type: 'text', label: 'Text', inputKey: 'prompt' },
-  { type: 'image', label: 'Image', inputKey: 'prompt' },
-  { type: 'video', label: 'Video', inputKey: 'prompt' },
-  { type: 'speech', label: 'Speech (TTS)', inputKey: 'text', configFields: [{ key: 'voice', label: 'Voice', placeholder: 'alloy' }] },
-  { type: 'music', label: 'Music', inputKey: 'prompt' },
-  { type: 'coding', label: 'Coding', inputKey: 'prompt', configFields: [{ key: 'language', label: 'Language', placeholder: 'JavaScript' }] },
-  { type: 'research', label: 'Research', inputKey: 'query' },
-  { type: 'gamegen', label: 'Game', inputKey: 'concept' },
+  { type: 'text', label: 'Text' },
+  { type: 'image', label: 'Image' },
+  { type: 'video', label: 'Video' },
+  { type: 'speech', label: 'Speech (TTS)', configFields: [{ key: 'voice', label: 'Voice', placeholder: 'alloy' }] },
+  { type: 'music', label: 'Music' },
+  { type: 'coding', label: 'Coding', configFields: [{ key: 'language', label: 'Language', placeholder: 'JavaScript' }] },
+  { type: 'research', label: 'Research' },
+  { type: 'gamegen', label: 'Game' },
 ];
 
 function escapeHtml(s: string): string {
@@ -172,12 +172,13 @@ export class WorkflowModal {
     const nodes = this.steps.map((step, i) => {
       const def = STEP_TYPES.find(t => t.type === step.type)!;
       const inputValue = i === 0 ? seed : `\${${this.steps[i - 1].id}}`;
+      const inputKey = NODE_PRIMARY_INPUT_KEY[step.type] || 'prompt';
       return {
         id: step.id,
         type: step.type,
         label: def.label,
         config: step.config,
-        inputs: { [def.inputKey]: inputValue },
+        inputs: { [inputKey]: inputValue },
         enabled: true,
       };
     });

@@ -43,7 +43,33 @@ class LocalStorageAdapter implements StorageAdapter {
 
   async save(data: any): Promise<void> {
     const key = `${this.namespace}:state`;
-    localStorage.setItem(key, JSON.stringify(data));
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err: any) {
+      // QuotaExceededError is the realistic failure mode once history can
+      // contain embedded media (see Actions.addHistoryEntry) — without
+      // this, a single save() throwing here would silently drop whatever
+      // else was being merged into this same shared blob (e.g. provider
+      // API keys saved moments earlier), since Store's dispatch() calls
+      // this fire-and-forget with no caller to surface the failure to.
+      // Progressively trim the most storage-hungry, least-critical field
+      // (history, which can hold embedded media) and retry before
+      // giving up, so a large history doesn't take down everything else
+      // sharing this key.
+      if (err?.name === 'QuotaExceededError' && Array.isArray(data?.history) && data.history.length > 0) {
+        for (const keep of [20, 5, 0]) {
+          try {
+            const trimmed = { ...data, history: data.history.slice(0, keep) };
+            localStorage.setItem(key, JSON.stringify(trimmed));
+            console.warn(`Persistence: localStorage quota exceeded — trimmed history to ${keep} entries to save the rest of the app state.`);
+            return;
+          } catch {
+            // keep trimming
+          }
+        }
+      }
+      console.error('Persistence: failed to save to localStorage (quota exceeded and trimming did not help).', err);
+    }
   }
 }
 

@@ -26,6 +26,11 @@ export class Reducers {
       history: [payload, ...state.history].slice(0, 60),
     }));
 
+    this.reducers.set('UPDATE_HISTORY_ENTRY', (state, payload: { id: string; patch: Partial<AppState['history'][number]> }) => ({
+      ...state,
+      history: state.history.map(h => (h.id === payload.id ? { ...h, ...payload.patch } : h)),
+    }));
+
     this.reducers.set('CLEAR_HISTORY', (state) => ({
       ...state,
       history: [],

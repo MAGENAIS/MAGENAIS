@@ -1,3 +1,14 @@
+/* Header + tab nav stay pinned together while the content below scrolls —
+   wrapping both in one sticky container (rather than making .topbar alone
+   sticky) means the tabs never scroll out of view regardless of how tall
+   the header/banner ends up being. */
+.app-sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg);
+}
+
 /* Topbar */
 header.topbar {
   display:flex;
@@ -5,26 +16,39 @@ header.topbar {
   justify-content:space-between;
   padding: 14px 22px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--bg-raised), var(--bg));
-  position: sticky;
-  top:0;
-  z-index:50;
+  background: var(--bg);
   flex-wrap:wrap;
   gap:10px;
   overflow:hidden; /* contains .topbar-banner */
+  position: relative;
+  min-height: 74px;
 }
 .topbar-banner{
   position:absolute;
   inset:0;
   z-index:0;
-  background:
-    linear-gradient(180deg, rgba(12,14,13,0.55), rgba(12,14,13,0.88)),
-    url('/branding/banner.png');
-  background-size: cover;
-  background-position: center 32%;
-  opacity: 0.5;
+  /* `contain` (not `cover`) so the whole banner image is always visible,
+     uncropped, at its own aspect ratio — cover would slice off most of a
+     wide banner to fill a short bar. Letterboxing (if the image's aspect
+     doesn't match the bar) blends into --bg since that's this element's
+     background-color, not empty space. */
+  background-color: var(--bg);
+  background-image: url('/branding/banner.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
 }
-.brand{ position:relative; z-index:1; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.brand{
+  position:relative; z-index:1; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  /* Frosted glass panel UNDER the brand text/logo only (not the whole
+     banner) so the image stays visible elsewhere but the title text stays
+     legible and bright regardless of what's behind it. */
+  background: rgba(8,9,10,0.38);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
 .brand-logo{
   height: 38px;
   width: auto;
@@ -34,22 +58,39 @@ header.topbar {
 .brand-text{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .brand .mark {
   font-family: var(--mono);
-  font-weight:600;
-  font-size:19px;
+  font-weight:700;
+  font-size:20px;
   letter-spacing: 0.06em;
-  color: var(--ink);
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.65);
 }
 .brand .mark span{ color: var(--amber); }
 .brand .tag {
   font-family: var(--mono);
   font-size:10.5px;
-  color: var(--ink-faint);
+  color: rgba(255,255,255,0.82);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  border-left: 1px solid var(--line-bright);
+  border-left: 1px solid rgba(255,255,255,0.35);
   padding-left:10px;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
 }
-.topbar-right{ position:relative; z-index:1; display:flex; gap:10px; align-items:center; }
+.topbar-right{
+  position:relative; z-index:1; display:flex; gap:10px; align-items:center;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: rgba(8,9,10,0.38);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.topbar-right .ghost-btn{
+  color: #fff;
+  border-color: rgba(255,255,255,0.28);
+}
+.topbar-right .ghost-btn:hover{
+  border-color: var(--amber);
+  background: rgba(255,255,255,0.08);
+}
 
 /* Navigation modes */
 nav.modes {
@@ -172,6 +213,17 @@ section.output {
   gap:14px;
   background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.02), transparent 70%);
 }
+/* Once the stage holds an actual result (not the empty placeholder), block
+   text should read like normal prose, not sit centered in the middle of
+   the panel — and it should align to the START of the line as resolved by
+   each element's own `dir` (left for LTR content, right for RTL content).
+   `dir="auto"` is set on `.result-text`/`.doc-summary-block` by a
+   MutationObserver in App.ts as they're inserted, so this works per-language
+   automatically instead of hardcoding any particular language's direction. */
+.stage:has(.result-text), .stage:has(.result-media), .stage:has(.doc-summary-block) {
+  align-items:stretch;
+  text-align:start;
+}
 .stage.text-align-left{ align-items:stretch; text-align:left; }
 .stage .empty-glyph{ font-family: var(--mono); font-size:34px; color: var(--line-bright); }
 .stage .empty-text{ color: var(--ink-faint); font-size:13px; max-width:380px; line-height:1.6; }
@@ -179,8 +231,9 @@ section.output {
 
 /* Footer */
 footer.statusbar {
+  position: relative;
   border-top:1px solid var(--line);
-  padding:8px 22px;
+  padding:10px 22px;
   font-family:var(--mono);
   font-size:10.5px;
   color:var(--ink-faint);
@@ -189,6 +242,29 @@ footer.statusbar {
   letter-spacing:0.03em;
   flex-wrap:wrap;
   gap:6px;
+  min-height: 40px;
+  overflow: hidden;
+}
+.statusbar-banner {
+  position:absolute;
+  inset:0;
+  z-index:0;
+  background-color: var(--bg);
+  background-image: url('/branding/footer-banner.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.9;
+}
+footer.statusbar span {
+  position: relative;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(8,9,10,0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #fff;
 }
 
 /* Fields & forms */
@@ -251,6 +327,8 @@ details.adv .adv-body{ padding: 4px 12px 14px; display:flex; flex-direction:colu
   white-space: pre-wrap;
   font-family: var(--sans);
   padding: 4px 2px;
+  text-align:start;
+  unicode-bidi:plaintext;
 }
 .result-media {
   display:flex;
@@ -393,9 +471,11 @@ table.data-preview th{ background:var(--bg-raised); color:var(--ink-dim); positi
 
 /* Doc summary */
 .doc-summary-block {
-  border-left:2px solid var(--amber);
-  padding-left:14px;
+  border-inline-start:2px solid var(--amber);
+  padding-inline-start:14px;
   margin-bottom: 10px;
+  text-align:start;
+  unicode-bidi:plaintext;
 }
 
 /* Game frame */

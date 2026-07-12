@@ -62,6 +62,28 @@ export class App {
       setTimeout(() => {
         const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement | null;
         if (promptInput && entry.prompt) promptInput.value = entry.prompt;
+        // Restore the actual generated result too — previously this only
+        // refilled the prompt, so "reloading" a history item never showed
+        // you what you'd actually generated, only got you back to where
+        // you could type Generate again (spending a fresh API call for a
+        // result that might not even come back the same).
+        const stage = this.outputPanel?.querySelector('.stage') as HTMLElement | null;
+        if (stage && entry.result) {
+          const restoredNote = '<p class="hint" style="margin-bottom:10px;">Restored from history · ' + new Date(entry.timestamp).toLocaleString() + '</p>';
+          let body: string;
+          if (entry.resultType === 'image' && typeof entry.result === 'string') {
+            body = `<div class="result-media"><img src="${entry.result}" style="max-width:100%; border-radius:var(--radius);"></div>`;
+          } else if (entry.resultType === 'video' && typeof entry.result === 'string') {
+            body = `<div class="result-media"><video src="${entry.result}" controls style="max-width:100%; border-radius:var(--radius);"></video></div>`;
+          } else if (entry.resultType === 'audio' && typeof entry.result === 'string') {
+            body = `<div class="result-media"><audio src="${entry.result}" controls></audio></div>`;
+          } else {
+            const div = document.createElement('div');
+            div.textContent = typeof entry.result === 'string' ? entry.result : JSON.stringify(entry.result, null, 2);
+            body = `<div class="result-text">${div.innerHTML}</div>`;
+          }
+          stage.innerHTML = restoredNote + body;
+        }
       }, 0);
     });
     this.workflowModal = new WorkflowModal(kernel);
@@ -91,6 +113,15 @@ export class App {
     this.stage = document.getElementById('stage') as HTMLElement;
     this.navContainer = document.getElementById('modeNav') || document.querySelector('nav.modes') as HTMLElement;
 
+    // Auto-apply dir="auto" to generated text content so it reads
+    // left-to-right or right-to-left based on the CONTENT's own script
+    // (Arabic/Persian/Hebrew/etc. vs Latin/etc.), not a fixed assumption —
+    // the browser's native bidi algorithm decides this per dir="auto"
+    // semantics, so this isn't a hardcoded language list and covers every
+    // mode (including ones added later) since it watches the DOM rather
+    // than requiring each mode to remember to set this itself.
+    this.setupTextDirectionObserver();
+
     // Register all modes
     this.registerModes();
 
@@ -98,7 +129,13 @@ export class App {
     //this.setupGlobalListeners();
 
     // Set initial theme (dark)
-    this.theme.setTheme('dark');
+    // Restore whatever theme the person last picked (Kernel.boot() has
+    // already loaded the store by this point) — previously this was
+    // hardcoded to 'dark' on every boot, so a saved theme choice (once
+    // persistence existed at all — see toggleThemePicker) would silently
+    // revert on every reload.
+    const savedTheme = this.store.getState().theme;
+    this.theme.setTheme(savedTheme || 'dark');
 
     // Update status bar
     this.updateStatus('Ready', 'MAGENAIS v2.1');
@@ -106,24 +143,26 @@ export class App {
 
   private getAppShellMarkup(): string {
     return `
-      <header class="topbar">
-        <div class="topbar-banner" aria-hidden="true"></div>
-        <div class="brand">
-          <img class="brand-logo" src="/branding/logo.png" alt="" aria-hidden="true">
-          <div class="brand-text">
-            <div class="mark">MAGENAI<span>S</span></div>
-            <div class="tag">GENAI OPERATING SYSTEM · Birth of Wisdom</div>
+      <div class="app-sticky-top">
+        <header class="topbar">
+          <div class="topbar-banner" aria-hidden="true"></div>
+          <div class="brand">
+            <img class="brand-logo" src="/branding/logo.png" alt="" aria-hidden="true">
+            <div class="brand-text">
+              <div class="mark">MAGENAI<span>S</span></div>
+              <div class="tag">GENAI OPERATING SYSTEM · Birth of Wisdom</div>
+            </div>
           </div>
-        </div>
-        <div class="topbar-right">
-          <button class="ghost-btn" id="introBtn" title="About MAGENAIS, mission, and contact">Introduction</button>
-          <button class="ghost-btn" id="historyBtn" title="Browse and reload past generations">History</button>
-          <button class="ghost-btn" id="settingsBtn" title="Add API keys and manage providers">Keys &amp; Providers</button>
-          <button class="ghost-btn" id="themeBtn" title="Switch between dark and light theme">Theme</button>
-          <button class="ghost-btn" id="workflowBtn" title="Chain multiple generation steps into one pipeline">Workflow</button>
-        </div>
-      </header>
-      <nav class="modes" id="modeNav"></nav>
+          <div class="topbar-right">
+            <button class="ghost-btn" id="introBtn" title="About MAGENAIS, mission, and contact">Introduction</button>
+            <button class="ghost-btn" id="historyBtn" title="Browse and reload past generations">History</button>
+            <button class="ghost-btn" id="settingsBtn" title="Add API keys and manage providers">Keys &amp; Providers</button>
+            <button class="ghost-btn" id="themeBtn" title="Switch between color themes">Theme</button>
+            <button class="ghost-btn" id="workflowBtn" title="Chain multiple generation steps into one pipeline">Workflow</button>
+          </div>
+        </header>
+        <nav class="modes" id="modeNav"></nav>
+      </div>
       <main>
         <section class="control" id="controlPanel"></section>
         <section class="output">
@@ -139,10 +178,39 @@ export class App {
         </section>
       </main>
       <footer class="statusbar">
+        <div class="statusbar-banner" aria-hidden="true"></div>
         <span id="footerLeft">Ready</span>
         <span id="footerRight">MAGENAIS v2.1</span>
       </footer>
     `;
+  }
+
+  /**
+   * Watches the output panel for generated-content elements
+   * (.result-text, .doc-summary-block) being added, and sets dir="auto" on
+   * them so the browser's bidi algorithm picks left-to-right or
+   * right-to-left per the actual text content. Centralized here (rather
+   * than in each mode) so it covers every mode uniformly, including any
+   * added later, without relying on each one to remember to do it.
+   */
+  private setupTextDirectionObserver(): void {
+    if (!this.outputPanel) return;
+    const applyTo = (el: Element) => {
+      if (el.matches?.('.result-text, .doc-summary-block, .result-media, .stage')) {
+        if (!el.hasAttribute('dir')) el.setAttribute('dir', 'auto');
+      }
+      el.querySelectorAll?.('.result-text, .doc-summary-block').forEach(child => {
+        if (!child.hasAttribute('dir')) child.setAttribute('dir', 'auto');
+      });
+    };
+    const observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach(node => {
+          if (node.nodeType === Node.ELEMENT_NODE) applyTo(node as Element);
+        });
+      }
+    });
+    observer.observe(this.outputPanel, { childList: true, subtree: true });
   }
 
   private registerModes(): void {
@@ -245,16 +313,70 @@ export class App {
 
     const themeBtn = document.getElementById('themeBtn');
     if (themeBtn) {
-      themeBtn.addEventListener('click', () => {
-        const newTheme = this.theme.toggleTheme();
-        this.updateStatus(`Theme: ${newTheme}`, '');
-      });
+      themeBtn.addEventListener('click', () => this.toggleThemePicker(themeBtn));
     }
 
     const workflowBtn = document.getElementById('workflowBtn');
     if (workflowBtn) {
       workflowBtn.addEventListener('click', () => this.showWorkflowEditor());
     }
+  }
+
+  private themePickerEl: HTMLElement | null = null;
+
+  /**
+   * Shows a small popover listing every registered theme (see Theme.ts) as
+   * a clickable swatch, instead of the previous plain toggle that only
+   * ever flipped between dark and one fixed light theme with no other
+   * choice. Picking one applies it immediately and persists it via the
+   * Store so it survives a reload (previously the theme choice was never
+   * saved at all — every reload silently reset to dark, toggle included).
+   */
+  private toggleThemePicker(anchor: HTMLElement): void {
+    if (this.themePickerEl) {
+      this.themePickerEl.remove();
+      this.themePickerEl = null;
+      return;
+    }
+    const themes = this.theme.getAvailableThemes();
+    const current = this.theme.getTheme().name;
+    const popover = document.createElement('div');
+    popover.className = 'theme-picker-popover';
+    popover.innerHTML = themes.map(t => `
+      <button class="theme-picker-option${t.name === current ? ' active' : ''}" data-theme="${t.name}" title="${t.label}">
+        <span class="theme-picker-swatch" style="background:${t.swatch[0]}; box-shadow: inset 0 0 0 12px ${t.swatch[1]}22, inset -14px -14px 0 0 ${t.swatch[1]};"></span>
+        <span class="theme-picker-label">${t.label}</span>
+      </button>
+    `).join('');
+    document.body.appendChild(popover);
+    const rect = anchor.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + 6 + window.scrollY}px`;
+    popover.style.right = `${window.innerWidth - rect.right}px`;
+    this.themePickerEl = popover;
+
+    popover.querySelectorAll<HTMLButtonElement>('.theme-picker-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.theme!;
+        this.theme.setTheme(name);
+        this.store.getActions().setTheme(name);
+        this.updateStatus(`Theme: ${this.theme.getTheme().label}`, '');
+        popover.remove();
+        this.themePickerEl = null;
+      });
+    });
+
+    // Close on outside click (deferred so this same click doesn't
+    // immediately close the popover it just opened).
+    setTimeout(() => {
+      const closeOnOutsideClick = (e: MouseEvent) => {
+        if (this.themePickerEl && !this.themePickerEl.contains(e.target as Node) && e.target !== anchor) {
+          this.themePickerEl.remove();
+          this.themePickerEl = null;
+          document.removeEventListener('click', closeOnOutsideClick);
+        }
+      };
+      document.addEventListener('click', closeOnOutsideClick);
+    }, 0);
   }
 
   private updateStatus(left: string, right: string): void {
