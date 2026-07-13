@@ -97,13 +97,23 @@ export class GameMode extends Mode {
   private renderGame(html: string): void {
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
     if (!stage) return;
-    const blob = new Blob([html], { type: 'text/html' });
+    // ROOT CAUSE of "garbage"/mojibake text in generated games (e.g. emoji
+    // sprites rendering as "Ã°Å¸Â¡..."): this Blob had no charset, so the
+    // browser had no reliable way to know the HTML's emoji/unicode bytes
+    // were UTF-8 and could fall back to a different encoding, corrupting
+    // every non-ASCII character (exactly the mojibake pattern of UTF-8
+    // bytes misread as Latin-1). Declaring the charset here is the fix
+    // that actually matters (the <meta charset> tag the generation prompt
+    // now also requires is useful defense-in-depth, but the HTTP-level
+    // Blob MIME type takes precedence for how the browser decodes it).
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     stage.innerHTML = `
       <div class="result-media" style="margin-bottom:14px;">
         <iframe src="${url}" style="width:100%; height:520px; border:1px solid var(--line); border-radius:8px; background:#000;" sandbox="allow-scripts allow-pointer-lock"></iframe>
         <div class="result-actions" style="margin-top:10px; display:flex; gap:8px;">
           <a href="${url}" download="magenais-game.html"><button class="ghost-btn">Download Game (.html)</button></a>
+
           <button class="ghost-btn" id="iterateBtn">Iterate on this game</button>
         </div>
       </div>

@@ -116,6 +116,25 @@ export class ProviderManager {
     });
 
     // Clear registry and load merged
+    // Force-enable genuinely free, zero-setup built-ins (noKeyNeeded AND
+    // isBuiltIn) regardless of whatever their stored `enabled` value was.
+    // This is deliberately narrower than "always trust defaults" — it does
+    // NOT touch keyed/paid providers, where respecting an explicit
+    // disable is legitimate (e.g. to control spend or because the user
+    // doesn't want that vendor). But a provider that costs nothing and
+    // needs no credentials has no such reason to ever be off, and the
+    // entire point of shipping one (e.g. Puter.js for Vision) is to
+    // guarantee a capability works immediately after install with zero
+    // setup — a stale `enabled:false` left over from earlier testing (or
+    // any other cause) silently defeating that guarantee is a bug, not a
+    // preference worth preserving.
+    for (const p of mergedMap.values()) {
+      if (p.noKeyNeeded && p.isBuiltIn && !p.enabled) {
+        p.enabled = true;
+        Logger.info(`ProviderManager: re-enabled free built-in provider "${p.name}" (it costs nothing and needs no key, so it stays on).`);
+      }
+    }
+
     this.registry.clear();
     this.registry.loadProviders(Array.from(mergedMap.values()));
     this.seededDefaultIds = Array.from(seededSet);

@@ -145,7 +145,7 @@ export class App {
     return `
       <div class="app-sticky-top">
         <header class="topbar">
-          <div class="topbar-banner" aria-hidden="true"></div>
+          <img class="topbar-banner" src="/branding/banner.png" alt="" aria-hidden="true">
           <div class="brand">
             <img class="brand-logo" src="/branding/logo.png" alt="" aria-hidden="true">
             <div class="brand-text">
@@ -178,7 +178,7 @@ export class App {
         </section>
       </main>
       <footer class="statusbar">
-        <div class="statusbar-banner" aria-hidden="true"></div>
+        <img class="statusbar-banner" src="/branding/footer-banner.png" alt="" aria-hidden="true">
         <span id="footerLeft">Ready</span>
         <span id="footerRight">MAGENAIS v2.1</span>
       </footer>

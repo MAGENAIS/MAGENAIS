@@ -89,7 +89,7 @@ function buildStructureAgentPrompt(opts: GameOptions): string {
 Game concept: "${opts.concept}"
 
 Output a complete HTML document with:
-- <!DOCTYPE html>, <head> with <style>, and <body>
+- <!DOCTYPE html>, <head> with <meta charset="UTF-8"> as its very first child (the game logic will draw emoji/unicode characters as sprites — this MUST be present and correct for those to render properly instead of as garbled text), then <style>, and <body>
 - The canvas (2D) or an empty <div id="gameContainer"></div> (3D, Three.js will inject its own canvas there)
 - Background/page CSS colors that thematically fit the concept above (e.g. a pond-and-lily-pad green for a frog game, a desert palette for a sand/dune game) — this is scaffolding, but the color palette must already look like it belongs to THIS concept, not a generic gray placeholder
 - On-screen touch control buttons using position:fixed, anchored with pixel offsets (e.g. bottom:16px), each at least 56px square — NOT percentage-centered, so they can't be pushed off-screen

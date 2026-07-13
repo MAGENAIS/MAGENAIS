@@ -167,12 +167,23 @@ export class GraphUtils {
     }
   }
 
-  static resolveInputs(
+  /** Extract a usable media URL from a resolved reference value (string or {url} object). */
+  private static mediaUrlOf(value: any): string {
+    return typeof value === 'string' ? value : value.url;
+  }
+
+  /**
+   * A pending upgrade: `values[key]` currently holds either the sentinel
+   * (whole-value case) or a string containing `marker` (embedded case) and
+   * needs the real caption for `url` substituted in once available.
+   */
+  static resolveInputsAsync(
     node: Node,
     outputs: Map<string, any>,
     staticInputs: Record<string, any> = {}
-  ): Record<string, any> {
+  ): { values: Record<string, any>; pending: Array<{ key: string; url: string; marker?: string }> } {
     const resolved: Record<string, any> = {};
+    const pending: Array<{ key: string; url: string; marker?: string }> = [];
     const mappings = node.inputs || {};
     const expectsMedia = GraphUtils.MEDIA_CONSUMING_TYPES.has(node.type);
     const resolveRef = (ref: string): any => {
@@ -192,19 +203,26 @@ export class GraphUtils {
       return result;
     };
     const REF_RE = /\$\{([^}]+)\}/g;
+    let markerSeq = 0;
     for (const [key, value] of Object.entries(mappings)) {
       if (typeof value === 'string' && value.startsWith('${') && value.endsWith('}') && value.indexOf('${', 2) === -1) {
         // The ENTIRE value is exactly one reference — preserve whatever
         // type the upstream node actually output (string, {url}, etc.)
         // rather than coercing to a string, so downstream media-aware
         // nodes still get a usable reference, not `"[object Object]"`.
-        let result = resolveRef(value.slice(2, -1).trim());
+        const result = resolveRef(value.slice(2, -1).trim());
         if (!expectsMedia && GraphUtils.isMediaReference(result)) {
-          result = '[The previous workflow step generated a media file (image, audio, or video) here, ' +
-            'not text — its content cannot be read directly. Continue based on the original request/context only, ' +
-            'or add a Vision step to the workflow if the content of that file needs to be analyzed.]';
+          // Placeholder for now — BaseNodeExecutor.resolveInputs (async)
+          // will try to replace this with a real vision-generated caption
+          // of the media before the node actually runs; this text is only
+          // what's left in place if that upgrade isn't possible (no vision
+          // provider available, or the call fails).
+          resolved[key] = '[A previous step generated a media file here that could not be described — ' +
+            'continuing based on the original request/context only.]';
+          pending.push({ key, url: GraphUtils.mediaUrlOf(result) });
+        } else {
+          resolved[key] = result;
         }
-        resolved[key] = result;
       } else if (typeof value === 'string' && REF_RE.test(value)) {
         // One or more references EMBEDDED in a larger string (e.g. a
         // user-authored template like "Summarize this: ${step1}") — every
@@ -215,18 +233,31 @@ export class GraphUtils {
         // whole field to be nothing but a reference.
         REF_RE.lastIndex = 0;
         resolved[key] = value.replace(REF_RE, (_match, ref) => {
-          let result = resolveRef(ref.trim());
+          const result = resolveRef(ref.trim());
           if (!expectsMedia && GraphUtils.isMediaReference(result)) {
-            return '[a generated media file from a previous step, not readable as text]';
+            const marker = `\u0000MEDIA_REF_${markerSeq++}\u0000`;
+            pending.push({ key, url: GraphUtils.mediaUrlOf(result), marker });
+            return marker;
           }
           return GraphUtils.stringifyOutput(result);
         });
       } else {
-        // Static value (or directly provided)
         resolved[key] = value;
       }
     }
-    // Merge with static inputs (allow override)
-    return { ...staticInputs, ...resolved };
+    return { values: { ...staticInputs, ...resolved }, pending };
+  }
+
+  /**
+   * Synchronous convenience wrapper (used by tests and any caller that
+   * doesn't need the vision-caption upgrade) — pending media references
+   * fall straight back to the static placeholder text.
+   */
+  static resolveInputs(
+    node: Node,
+    outputs: Map<string, any>,
+    staticInputs: Record<string, any> = {}
+  ): Record<string, any> {
+    return GraphUtils.resolveInputsAsync(node, outputs, staticInputs).values;
   }
 }

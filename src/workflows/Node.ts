@@ -14,14 +14,51 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
   abstract execute(node: Node, context: ExecutionContext): Promise<any>;
 
   /**
-   * Helper to resolve node inputs using GraphUtils.
+   * Helper to resolve node inputs using GraphUtils, upgrading any
+   * media-into-text-node reference (see GraphUtils.resolveInputsAsync) into
+   * a real vision-generated caption when a vision-capable provider is
+   * available, instead of leaving a generic "couldn't be described"
+   * placeholder. This is what makes chaining e.g. Image -> Text produce an
+   * actually meaningful result (a real description of the generated image)
+   * rather than either a leaked blob: URL or an unhelpful apology.
    */
-  protected resolveInputs(
+  protected async resolveInputs(
     node: Node,
     outputs: Map<string, any>,
-    staticInputs: Record<string, any> = {}
-  ): Record<string, any> {
-    return GraphUtils.resolveInputs(node, outputs, staticInputs);
+    staticInputs: Record<string, any> = {},
+    context?: ExecutionContext
+  ): Promise<Record<string, any>> {
+    const { values, pending } = GraphUtils.resolveInputsAsync(node, outputs, staticInputs);
+    if (pending.length === 0 || !context?.services) return values;
+
+    const { providerManager, router } = context.services;
+    // Cache by URL so the same media referenced multiple times (whole-value
+    // in one field, embedded in another) only gets captioned once per node.
+    const captionCache = new Map<string, string | null>();
+    for (const task of pending) {
+      let caption = captionCache.get(task.url);
+      if (caption === undefined) {
+        try {
+          caption = await providerManager.callVision(
+            task.url,
+            'Describe this image in one or two clear, factual sentences.',
+            router,
+            context.log
+          );
+        } catch {
+          caption = null; // no vision provider available, or the call failed — leave the placeholder
+        }
+        captionCache.set(task.url, caption);
+      }
+      if (!caption) continue; // keep whatever placeholder/marker is already in values[task.key]
+      const described = `[Image from a previous step, described: ${caption}]`;
+      if (task.marker) {
+        values[task.key] = String(values[task.key]).replace(task.marker, described);
+      } else {
+        values[task.key] = described;
+      }
+    }
+    return values;
   }
 
   /**
@@ -79,7 +116,7 @@ export class TextNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'text';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const prompt = inputs.prompt || inputs.text || '';
     if (!prompt) throw new Error('Text node requires a prompt input.');
     return this.callProvider(node, { prompt }, context);
@@ -90,7 +127,7 @@ export class ImageNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'image';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const prompt = inputs.prompt || '';
     if (!prompt) throw new Error('Image node requires a prompt.');
     return this.callProvider(node, { prompt }, context); // returns image URL (string)
@@ -101,7 +138,7 @@ export class VideoNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'video';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const prompt = inputs.prompt || '';
     if (!prompt) throw new Error('Video node requires a prompt.');
     return this.callProvider(node, { prompt }, context); // returns video URL or { url, isFallback }
@@ -112,7 +149,7 @@ export class AudioNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'audio';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const audioInput = inputs.audio || inputs.file;
     if (!audioInput) throw new Error('Audio node requires audio data.');
     return this.callProvider(node, { blob: audioInput }, context); // returns transcribed text
@@ -123,7 +160,7 @@ export class SpeechNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'speech';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const text = inputs.text || '';
     if (!text) throw new Error('Speech node requires text.');
     return this.callProvider(node, { prompt: text }, context); // returns audio URL
@@ -134,7 +171,7 @@ export class MusicNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'music';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const prompt = inputs.prompt || '';
     if (!prompt) throw new Error('Music node requires a prompt.');
     return this.callProvider(node, { prompt }, context); // returns audio URL
@@ -145,7 +182,7 @@ export class ResearchNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'research';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const query = inputs.query || inputs.prompt || '';
     if (!query) throw new Error('Research node requires a query.');
 
@@ -168,7 +205,7 @@ export class GameGenNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'gamegen';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const concept = inputs.concept || inputs.prompt || '';
     if (!concept) throw new Error('GameGen node requires a concept.');
 
@@ -206,7 +243,7 @@ export class DataNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'data';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const fileData = inputs.file;
     if (!fileData) throw new Error('Data node requires file input.');
 
@@ -231,7 +268,7 @@ export class DocNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'doc';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const file: File | undefined = inputs.file;
     if (!file) throw new Error('Doc node requires file input.');
 
@@ -268,7 +305,7 @@ export class CodingNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'coding';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const request = inputs.prompt || inputs.request || '';
     if (!request) throw new Error('Coding node requires a description of what to build.');
 
@@ -295,7 +332,7 @@ export class VisionNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'vision';
 
   async execute(node: Node, context: ExecutionContext): Promise<any> {
-    const inputs = this.resolveInputs(node, context.variables, context.inputs);
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const imageBase64 = inputs.imageBase64;
     if (!imageBase64) throw new Error('Vision node requires an image (data URL).');
     const prompt = inputs.prompt || 'Describe what you see in this image in detail.';

@@ -60,4 +60,51 @@ function mkNode(type: any, inputs: Record<string, any>): Node {
   check('Plain text whole-value chaining is unaffected', resolved.query === 'hello world');
 }
 
-process.exit(failed ? 1 : 0);
+// 6) The async upgrade path: BaseNodeExecutor.resolveInputs should replace
+// the placeholder with a REAL vision caption when a vision-capable
+// provider is available, instead of leaving the generic apology text —
+// this is the actual fix for "Image->Text produces ambiguous content".
+async function testAsyncVisionUpgrade() {
+  const { TextNodeExecutor } = await import('../src/workflows/Node');
+  const executor = new TextNodeExecutor();
+  const resolveInputs = (executor as any).resolveInputs.bind(executor);
+
+  const outputs = new Map<string, any>([['step1', 'blob:http://localhost:5173/abc']]);
+  const node = mkNode('text', { prompt: '${step1}' });
+
+  const fakeContext: any = {
+    services: {
+      providerManager: {
+        callVision: async (_url: string, _prompt: string) => 'A red fusion reactor core glowing with plasma.',
+      },
+      router: {},
+    },
+    log: () => {},
+  };
+
+  const resolved = await resolveInputs(node, outputs, {}, fakeContext);
+  check(
+    'Image->Text chaining produces a real vision caption, not a generic apology',
+    typeof resolved.prompt === 'string' &&
+      resolved.prompt.includes('fusion reactor core') &&
+      !resolved.prompt.includes("couldn't be described")
+  );
+
+  // Vision unavailable/fails -> falls back to the honest placeholder, not a crash.
+  const failingContext: any = {
+    services: {
+      providerManager: { callVision: async () => { throw new Error('no provider'); } },
+      router: {},
+    },
+    log: () => {},
+  };
+  const resolvedFallback = await resolveInputs(node, outputs, {}, failingContext);
+  check(
+    'Falls back to the honest placeholder (not a crash) when vision is unavailable',
+    typeof resolvedFallback.prompt === 'string' && resolvedFallback.prompt.includes('could not be described')
+  );
+}
+
+testAsyncVisionUpgrade().then(() => {
+  process.exit(failed ? 1 : 0);
+});

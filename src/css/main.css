@@ -5,6 +5,7 @@ html,body {
   color: var(--ink);
   font-family: var(--sans);
   height:100%;
+  overflow:hidden; /* the app shell owns scrolling internally now — see #app / main */
   -webkit-font-smoothing: antialiased;
 }
 body {
@@ -18,4 +19,4 @@ body {
 ::-webkit-scrollbar-thumb{ background: var(--line-bright); border-radius:5px; }
 a { color: var(--amber); text-decoration: none; }
 
-#app{ display:flex; flex-direction:column; min-height:100vh; }
+#app{ display:flex; flex-direction:column; height:100vh; overflow:hidden; }
