@@ -286,12 +286,27 @@ export class ProviderManager {
       .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey));
 
     if (candidates.length === 0) {
-      throw new Error(
-        "No vision-capable provider is configured or enabled — enable \"Puter.js (optional, no key)\" in Keys & Providers " +
-        "for a genuine zero-setup option, or add an API key for a provider whose model supports image understanding " +
-        "(Anthropic Claude, Google Gemini, OpenAI, or another OpenAI-compatible provider such as OpenRouter/GitHub " +
-        "Models using a vision-capable model, e.g. gpt-4o)."
-      );
+      // Diagnose the actual cause instead of one generic message — in
+      // particular, distinguish "Puter exists but its checkbox is off"
+      // (a one-click fix) from "Puter isn't in the provider list at all"
+      // (needs Reset to Defaults) from "no free option and no key
+      // anywhere" (needs a key). All text providers are checked here
+      // (not just enabled ones) specifically to catch the disabled case.
+      const puterProvider = this.registry.getAllProviders().find(p => p.adapterId === 'puter' && p.type === 'text');
+      let reason: string;
+      if (puterProvider && !puterProvider.enabled) {
+        reason = 'The built-in "Puter.js (optional, no key)" provider is installed but currently disabled — ' +
+          'turn its checkbox on in Keys & Providers (Text category) to use it for Vision at no cost, no API key needed.';
+      } else if (!puterProvider) {
+        reason = 'The built-in "Puter.js (optional, no key)" provider is missing from your provider list — ' +
+          'click "Reset to Defaults" in Keys & Providers to restore it, or add an API key for Anthropic, Gemini, ' +
+          'OpenAI, or another OpenAI-compatible provider with a vision-capable model (e.g. gpt-4o).';
+      } else {
+        reason = 'Add an API key for a provider whose model supports image understanding (Anthropic Claude, ' +
+          'Google Gemini, OpenAI, or another OpenAI-compatible provider such as OpenRouter/GitHub Models using ' +
+          'a vision-capable model, e.g. gpt-4o) in Keys & Providers.';
+      }
+      throw new Error(`No vision-capable provider is configured or enabled. ${reason}`);
     }
 
     const errors: string[] = [];

@@ -12,12 +12,12 @@ Two working examples (the ones shown by default) are kept here in
 `samples/` — `sample-header-banner.png` and `sample-footer-banner.png` —
 so you always have a known-good pair to fall back to or compare against.
 
-**Sizing:** images are shown with `background-size: contain` (not
-`cover`), so your whole image is always visible, uncropped, letterboxed
-against the theme background if its aspect ratio doesn't exactly match the
-bar it sits in. There's no required size — a wide, short banner (roughly
-3:1 to 10:1) works best since that's the shape of both bars, but any
-image works.
+**Sizing:** images are shown with `background-size: cover` across the full
+width of the bar, so they always read as a proper full-width banner rather
+than a small centered thumbnail. If your source image has a lot of empty
+padding around the actual logo/content (ours did — cropped out here),
+crop it down to just the content first for the best result; a wide, short
+image (roughly 4:1 to 10:1) fits both bars best.
 
 **Format:** PNG or JPG. A transparent PNG works well since the app already
 darkens/blurs behind the header text for legibility.

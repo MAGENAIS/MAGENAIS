@@ -167,15 +167,14 @@ export class SettingsModal {
           : '<span class="key-status unset">no key set — add one below to activate</span>';
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
 
-      const canToggle = p.noKeyNeeded || p.isBuiltIn || !!p.apiKey;
       row.innerHTML = `
         <div class="provider-row-top">
           <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
             <span class="provider-name" style="color:${statusColor};">${escapeHtml(p.name)}</span>
             <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}</span>
           </div>
-          <label style="display:flex; align-items:center; gap:5px; cursor:${canToggle ? 'pointer' : 'not-allowed'}; flex-shrink:0;" ${canToggle ? '' : 'title="Add an API key below to enable this provider"'}>
-            <input type="checkbox" data-action="toggle" ${(canToggle && p.enabled) ? 'checked' : ''} ${canToggle ? '' : 'disabled'} style="width:auto;">
+          <label style="display:flex; align-items:center; gap:5px; cursor:pointer; flex-shrink:0;" title="${p.noKeyNeeded || p.isBuiltIn || p.apiKey ? 'Enable or disable this provider' : 'Enabled providers activate automatically once you add an API key below'}">
+            <input type="checkbox" data-action="toggle" ${p.enabled ? 'checked' : ''} style="width:auto;">
           </label>
         </div>
         ${p.noKeyNeeded ? '' : `
@@ -200,8 +199,23 @@ export class SettingsModal {
       const keyInput = row.querySelector('[data-action="apiKey"]') as HTMLInputElement | null;
       if (keyInput) {
         const save = () => {
-          manager.updateProvider(p.id, { apiKey: keyInput.value.trim() });
-          this.renderList();
+          const trimmed = keyInput.value.trim();
+          if (trimmed === (p.apiKey || '')) return; // no change, skip the churn
+          manager.updateProvider(p.id, { apiKey: trimmed });
+          p.apiKey = trimmed;
+          // Patch this row's own status text/color in place instead of
+          // tearing down and rebuilding the entire provider list (which
+          // previously happened on every single blur) — avoids any chance
+          // of replacing DOM elements out from under an in-progress click
+          // elsewhere in the list.
+          const isUsableNow = p.enabled && (p.noKeyNeeded || !!p.apiKey);
+          const nameEl = row.querySelector('.provider-name') as HTMLElement | null;
+          if (nameEl) nameEl.style.color = isUsableNow ? 'var(--moss)' : p.enabled ? 'var(--rust)' : 'var(--ink-faint)';
+          const metaEl = row.querySelector('.key-status') as HTMLElement | null;
+          if (metaEl) {
+            metaEl.textContent = p.apiKey ? 'key set' : 'no key set — add one below to activate';
+            metaEl.className = p.apiKey ? 'key-status set' : 'key-status unset';
+          }
         };
         keyInput.addEventListener('blur', save);
         keyInput.addEventListener('keydown', (e) => {

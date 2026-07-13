@@ -91,15 +91,19 @@ Game concept: "${opts.concept}"
 Output a complete HTML document with:
 - <!DOCTYPE html>, <head> with <style>, and <body>
 - The canvas (2D) or an empty <div id="gameContainer"></div> (3D, Three.js will inject its own canvas there)
+- Background/page CSS colors that thematically fit the concept above (e.g. a pond-and-lily-pad green for a frog game, a desert palette for a sand/dune game) — this is scaffolding, but the color palette must already look like it belongs to THIS concept, not a generic gray placeholder
 - On-screen touch control buttons using position:fixed, anchored with pixel offsets (e.g. bottom:16px), each at least 56px square — NOT percentage-centered, so they can't be pushed off-screen
 - html, body { margin:0; height:100%; overflow:hidden; touch-action:none; }
 - A simple score/lives/status display positioned with fixed top offsets
 - A single empty <script> tag at the very end of <body> containing only this exact comment and nothing else: // GAME_LOGIC_PLACEHOLDER
 
-Keep CSS concise — this is scaffolding only, not the final styled product. Output ONLY the HTML document, starting with <!DOCTYPE html> and ending with </html>. No explanation, no markdown fences.`;
+Keep the CSS concise — this is scaffolding only, the JS pass adds the actual characters/objects — but the color palette and any decorative touches must already clearly fit "${opts.concept}", not look like an unthemed generic template. Output ONLY the HTML document, starting with <!DOCTYPE html> and ending with </html>. No explanation, no markdown fences.`;
 }
 
 function buildLogicAgentPrompt(opts: GameOptions, structureHtml: string): string {
+  const visualNote = opts.engine === '3d'
+    ? `Every distinct entity type from the concept (player, obstacles, collectibles, enemies, etc.) must be visually distinguishable and thematically appropriate — use different mesh shapes/colors/proportions per entity type that clearly suggest what they represent (e.g. a green rounded/squashed shape for a frog, gray irregular boxes for stones), not identical plain cubes for everything.`
+    : `Every distinct entity type from the concept (player, obstacles, collectibles, enemies, etc.) MUST be drawn as a large, readable emoji or Unicode symbol via ctx.font (e.g. "32px serif") + ctx.fillText at its position — pick the emoji that actually matches what the concept describes (a frog game's player should visibly be a frog emoji like 🐸, its obstacles should visibly be stones like 🪨, etc.), not a plain filled rectangle/circle. This is the single most important requirement: the concept must be immediately recognizable just by looking at the game, not just functionally implemented.`;
   const engineNote = opts.engine === '3d'
     ? 'Three.js (r128 — no OrbitControls, no CapsuleGeometry; use BoxGeometry/SphereGeometry/CylinderGeometry and manual camera control)'
     : 'the HTML5 Canvas 2D API';
@@ -117,7 +121,9 @@ ${structureHtml}
 
 Game concept: "${opts.concept}" using ${engineNote}.${genreNote}${complexityNote}
 
-Write ONLY the JavaScript game logic that replaces the comment "// GAME_LOGIC_PLACEHOLDER" — initialize the renderer/canvas, set up keyboard (arrow keys/WASD) AND the on-screen touch buttons already present in the HTML (wire up click/touchstart listeners on their existing IDs/classes), implement the game loop, scoring, and win/lose condition described above. Reference the canvas/container element already defined in the HTML above by its existing id. Assume the script runs after the DOM above has loaded (it's the last tag in <body>).
+VISUAL REQUIREMENT (read carefully — this is what makes the game actually match the concept instead of looking like an unthemed template): ${visualNote}
+
+Write ONLY the JavaScript game logic that replaces the comment "// GAME_LOGIC_PLACEHOLDER" — initialize the renderer/canvas, set up keyboard (arrow keys/WASD) AND the on-screen touch buttons already present in the HTML (wire up click/touchstart listeners on their existing IDs/classes), implement the game loop, scoring, and win/lose condition described above, drawing every entity per the visual requirement above. Reference the canvas/container element already defined in the HTML above by its existing id. Assume the script runs after the DOM above has loaded (it's the last tag in <body>).
 
 Output ONLY the raw JavaScript code — no <script> tags, no explanation, no markdown fences, just the code that goes inside the script tag.`;
 }

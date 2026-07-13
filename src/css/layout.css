@@ -21,20 +21,20 @@ header.topbar {
   gap:10px;
   overflow:hidden; /* contains .topbar-banner */
   position: relative;
-  min-height: 74px;
+  min-height: 96px;
 }
 .topbar-banner{
   position:absolute;
   inset:0;
   z-index:0;
-  /* `contain` (not `cover`) so the whole banner image is always visible,
-     uncropped, at its own aspect ratio — cover would slice off most of a
-     wide banner to fill a short bar. Letterboxing (if the image's aspect
-     doesn't match the bar) blends into --bg since that's this element's
-     background-color, not empty space. */
   background-color: var(--bg);
   background-image: url('/branding/banner.png');
-  background-size: contain;
+  /* `cover` so the banner always spans the FULL WIDTH of the bar (no
+     letterboxed/centered-thumbnail effect) — banner.png is pre-cropped to
+     just its content band (no dead space), so cover only trims a little
+     off the edges to fill the bar rather than cutting into the actual
+     logo/text. */
+  background-size: cover;
   background-repeat: no-repeat;
   background-position: center;
 }
@@ -242,7 +242,7 @@ footer.statusbar {
   letter-spacing:0.03em;
   flex-wrap:wrap;
   gap:6px;
-  min-height: 40px;
+  min-height: 60px;
   overflow: hidden;
 }
 .statusbar-banner {
@@ -251,7 +251,7 @@ footer.statusbar {
   z-index:0;
   background-color: var(--bg);
   background-image: url('/branding/footer-banner.png');
-  background-size: contain;
+  background-size: cover;
   background-repeat: no-repeat;
   background-position: center;
   opacity: 0.9;

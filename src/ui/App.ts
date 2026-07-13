@@ -429,6 +429,7 @@ export class App {
       modal.innerHTML = `
         <div class="modal" style="max-width:640px;">
           <button class="modal-close" id="closeIntro">×</button>
+          <img src="/branding/banner.png" alt="MAGENAIS" style="width:100%; border-radius:var(--radius); margin-bottom:16px; display:block;">
           <h3>Introduction</h3>
           <div class="result-text" style="line-height:1.75;">
             <p style="margin-bottom:14px;">Welcome to MAGENAIS — the GENAI Operating System.</p>
