@@ -39,11 +39,11 @@ function escapeHtml(s: string): string {
   return div.innerHTML;
 }
 
-function blankProvider(): ProviderConfig {
+function blankProvider(type: ProviderType = 'text'): ProviderConfig {
   return {
     id: 'custom-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
     name: 'New Provider',
-    type: 'text',
+    type,
     adapterId: 'openai-compatible',
     baseUrl: '',
     authType: 'bearer',
@@ -124,7 +124,9 @@ export class SettingsModal {
       });
     });
 
-    el.querySelector('#addProviderBtn')?.addEventListener('click', () => this.openEditor(blankProvider(), true));
+    el.querySelector('#addProviderBtn')?.addEventListener('click', () =>
+      this.openEditor(blankProvider(this.activeFilter === 'all' ? 'text' : this.activeFilter), true)
+    );
     el.querySelector('#resetProvidersBtn')?.addEventListener('click', () => this.handleReset());
     el.querySelector('#clearDeviceDataBtn')?.addEventListener('click', () => this.handleClearData());
   }
@@ -365,6 +367,16 @@ export class SettingsModal {
       const manager = this.kernel.getProviderManager();
       if (isNew) {
         manager.addProvider(updated);
+        // Guarantee the provider that was just added is actually visible:
+        // if it was saved under a different type than the modal's current
+        // filter (e.g. the Type dropdown was changed before saving), switch
+        // the filter to match instead of leaving it hidden in the list.
+        if (this.activeFilter !== 'all' && this.activeFilter !== updated.type) {
+          this.activeFilter = updated.type;
+          document.querySelectorAll('#providerTypeFilterChips .chip').forEach(c => {
+            c.classList.toggle('active', (c as HTMLElement).dataset.val === updated.type);
+          });
+        }
       } else {
         manager.updateProvider(provider.id, updated);
       }

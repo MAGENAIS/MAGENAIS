@@ -189,4 +189,49 @@ export abstract class Mode {
       });
     });
   }
+
+  /**
+   * Counterpart to renderAudioBlock for when the only available playback is
+   * the browser's built-in voice (BrowserSpeechAdapter — no downloadable
+   * file, sentinel '__BROWSER_TTS_PENDING__'). Speaks `text` on demand via
+   * Play/Pause/Stop, matching the real-provider player's controls, and never
+   * speaks automatically — callers should render this AFTER the
+   * corresponding text is already visible.
+   */
+  protected renderBrowserSpeechBlock(text: string): string {
+    const id = 'bspeech-' + Math.random().toString(36).slice(2, 9);
+    // Data attribute rather than a closure, since this HTML is inserted via
+    // innerHTML — wireBrowserSpeechControls reads it back out at click time.
+    return `
+      <div class="result-media" data-browser-speech="${id}" data-speech-text="${encodeURIComponent(text)}">
+        <div class="hint">🔊 No downloadable audio file — plays live via your browser's built-in voice.</div>
+        <div class="audio-controls">
+          <button type="button" class="ghost-btn" data-bspeech-action="play" data-target="${id}">▶ Play</button>
+          <button type="button" class="ghost-btn" data-bspeech-action="pause" data-target="${id}">⏸ Pause</button>
+          <button type="button" class="ghost-btn" data-bspeech-action="stop" data-target="${id}">⏹ Stop</button>
+        </div>
+      </div>`;
+  }
+
+  /** Wires up buttons rendered by renderBrowserSpeechBlock. */
+  protected wireBrowserSpeechControls(root: HTMLElement = this.outputPanel): void {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    root.querySelectorAll('[data-bspeech-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = (btn as HTMLElement).dataset.bspeechAction;
+        const container = btn.closest('[data-speech-text]') as HTMLElement | null;
+        if (action === 'play') {
+          if (window.speechSynthesis.paused) { window.speechSynthesis.resume(); return; }
+          window.speechSynthesis.cancel(); // stop anything already speaking first
+          const text = container ? decodeURIComponent(container.dataset.speechText || '') : '';
+          if (!text) return;
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        } else if (action === 'pause') {
+          window.speechSynthesis.pause();
+        } else if (action === 'stop') {
+          window.speechSynthesis.cancel();
+        }
+      });
+    });
+  }
 }

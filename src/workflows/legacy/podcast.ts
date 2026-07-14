@@ -1,5 +1,9 @@
 import { ProviderManager } from '../../providers/registry/Manager';
 import { SmartRouter } from '../../providers/Router';
+import { stripMarkdownForSpeech } from '../../core/textUtils';
+
+// Re-exported so existing imports of this module keep working unchanged.
+export { stripMarkdownForSpeech } from '../../core/textUtils';
 
 export type LogFn = (message: string, level?: 'info' | 'warn' | 'error') => void;
 
@@ -25,23 +29,7 @@ interface ScriptLine {
   text: string;
 }
 
-export function stripMarkdownForSpeech(s: string): string {
-  return String(s)
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/^[\s]*[-*+]\s+/gm, '')
-    .replace(/^[\s]*\d+\.\s+/gm, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/^>\s+/gm, '')
-    .replace(/[_~]{1,2}([^_~]+)[_~]{1,2}/g, '$1')
-    .replace(/\n{2,}/g, '. ')
-    .replace(/\n/g, ', ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
+
 
 function chunkTextForSpeech(text: string, maxLen: number): string[] {
   const sentences = text.split(/(?<=[.!?])\s+/);
@@ -107,10 +95,12 @@ async function voicePodcastLine(
   const cleanText = stripMarkdownForSpeech(text);
   try {
     const url = await providerManager.callWithFallback('speech', router, { prompt: cleanText }, { voice }, log);
-    if (typeof url === 'string' && url !== '__BROWSER_TTS_PLAYED__') {
+    if (typeof url === 'string' && url !== '__BROWSER_TTS_PENDING__') {
       return { url, recordable: true };
     }
-    // The only provider that succeeded was the live browser-speech fallback — audible, not a file.
+    // The only provider that succeeded was the browser-speech fallback, which
+    // has no capture API — nothing has been spoken yet (see
+    // BrowserSpeechAdapter), so there's nothing to record.
     return { url: null, recordable: false, fallbackText: cleanText };
   } catch (err: any) {
     log?.(`All speech providers failed for this line — ${err.message}`, 'warn');

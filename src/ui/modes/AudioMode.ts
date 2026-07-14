@@ -1,4 +1,5 @@
 import { Mode } from './Mode';
+import { stripMarkdownForSpeech } from '../../core/textUtils';
 
 export class AudioMode extends Mode {
   private activeMode: 'speech' | 'music' | 'podcast' = 'speech';
@@ -217,9 +218,15 @@ export class AudioMode extends Mode {
         const result = await this.kernel.getWorkflowEngine().execute(workflow, { text: prompt });
         const url = result.finalOutput;
         if (stage) {
-          if (url === '__BROWSER_TTS_PLAYED__') {
-            stage.innerHTML = `<div class="result-text">${prompt}</div>`;
-            this.appendLog("Played live via your browser's built-in voice — no downloadable file. Add a keyed speech provider in Keys & Providers to get one.", 'warn');
+          if (url === '__BROWSER_TTS_PENDING__') {
+            // Text shown first; browser-voice playback is entirely opt-in via
+            // the Play/Pause/Stop controls below (see BrowserSpeechAdapter —
+            // it no longer speaks on its own during generation).
+            stage.innerHTML = `
+              <div class="result-text" style="margin-bottom:14px;">${prompt}</div>
+              ${this.renderBrowserSpeechBlock(stripMarkdownForSpeech(prompt))}`;
+            this.wireBrowserSpeechControls(stage);
+            this.appendLog('No downloadable file — add a keyed speech provider in Keys & Providers to get one.', 'warn');
           } else {
             // Text shown first, player (no autoplay, explicit play/pause/stop) after —
             // see Mode.renderAudioBlock for why this doesn't autoplay.
@@ -229,7 +236,7 @@ export class AudioMode extends Mode {
             this.wireAudioControls(stage);
           }
         }
-        if (url !== '__BROWSER_TTS_PLAYED__') {
+        if (url !== '__BROWSER_TTS_PENDING__') {
           this.kernel.getStore().getActions().addHistoryEntry({
             mode: 'speech', prompt, result: url, resultType: 'audio',
           });
@@ -287,21 +294,22 @@ export class AudioMode extends Mode {
         if (stage) {
           const audioBlock = result.url
             ? this.renderAudioBlock(result.url, { filename: 'magen-podcast.wav', downloadLabel: 'Download Podcast (.wav)' })
-            : '';
+            : this.renderBrowserSpeechBlock(stripMarkdownForSpeech(result.script));
           if (!result.url) {
             this.appendLog(
-              'No downloadable audio file — no enabled, keyed speech provider succeeded (the script below was ' +
-              "spoken aloud using your browser's built-in voice as a preview only, which can't be saved to a file). " +
-              'Add an API key for at least one speech provider in Keys & Providers to get a downloadable .wav.',
+              'No downloadable audio file — no enabled, keyed speech provider succeeded. Add an API key for ' +
+              'at least one speech provider in Keys & Providers to get a downloadable .wav. You can still preview ' +
+              "the script below using your browser's built-in voice.",
               'warn'
             );
           }
           // Script shown first (readable immediately), player after it — see
-          // Mode.renderAudioBlock for why playback doesn't start automatically.
+          // Mode.renderAudioBlock/renderBrowserSpeechBlock for why playback
+          // never starts automatically.
           stage.innerHTML = `
             <p class="field-label">Script (${result.lineCount} lines)</p>
             <div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${result.script}</div></div>
-            <div class="result-actions" style="margin-bottom:${result.url ? '18px' : '0'};">
+            <div class="result-actions" style="margin-bottom:18px;">
               <button class="ghost-btn" id="copyPodcastScriptBtn">Copy script</button>
             </div>
             ${audioBlock}`;
@@ -309,6 +317,7 @@ export class AudioMode extends Mode {
             navigator.clipboard.writeText(result.script);
           });
           this.wireAudioControls(stage);
+          this.wireBrowserSpeechControls(stage);
         }
         this.kernel.getStore().getActions().addHistoryEntry({
           mode: 'podcast', prompt, result: result.url || result.script, resultType: result.url ? 'audio' : 'text',

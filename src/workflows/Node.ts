@@ -1,6 +1,7 @@
 import { Node, NodeExecutor, NodeType, ExecutionContext } from './types';
 import { GraphUtils } from './Graph';
 import { Logger } from '../core/Logger';
+import { stripMarkdownForSpeech } from '../core/textUtils';
 
 /**
  * Abstract base executor that provides common functionality.
@@ -171,7 +172,13 @@ export class SpeechNodeExecutor extends BaseNodeExecutor {
     const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
     const text = inputs.text || '';
     if (!text) throw new Error('Speech node requires text.');
-    return this.callProvider(node, { prompt: text }, context); // returns audio URL
+    // ROOT CAUSE of "TTS reads out # and * characters": stripMarkdownForSpeech
+    // already existed and was applied to the podcast pipeline, but this node
+    // — the one every OTHER speech path (Audio & Music's Speech mode, Vision's
+    // spoken narration) actually runs through — sent the raw text (which can
+    // contain Markdown from an upstream text-generation step) straight to the
+    // provider/browser voice, which reads punctuation literally.
+    return this.callProvider(node, { prompt: stripMarkdownForSpeech(text) }, context); // returns audio URL
   }
 }
 

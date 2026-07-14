@@ -1,4 +1,5 @@
 import { Mode } from './Mode';
+import { stripMarkdownForSpeech } from '../../core/textUtils';
 
 export class VisionMode extends Mode {
   private stream: MediaStream | null = null;
@@ -85,9 +86,15 @@ export class VisionMode extends Mode {
     }
     if (on) {
       if (!this.stream) { alert('Start the camera first.'); return; }
+      // 20s (was 8s) — gives a person enough time to actually read each
+      // analysis before it's replaced by the next one. handleAnalyze/
+      // runAnalysis already overwrite `.stage` wholesale on each tick, so
+      // the previous text is fully cleared (no stacking/buffering) the
+      // moment a new one lands; the only change needed here is spacing
+      // those replacements out.
       this.liveInterval = window.setInterval(() => {
         if (!this.analyzing) this.handleAnalyze();
-      }, 8000);
+      }, 20000);
       this.handleAnalyze();
     }
   }
@@ -178,7 +185,17 @@ export class VisionMode extends Mode {
           };
           const speechResult = await this.kernel.getWorkflowEngine().execute(audioWorkflow, { text: description });
           const url = speechResult.finalOutput;
-          if (url && url !== '__BROWSER_TTS_PLAYED__') {
+          if (url === '__BROWSER_TTS_PENDING__') {
+            // No keyed provider available — narrate directly via the browser's
+            // voice. Unlike the Audio tab (manual Play/Pause/Stop, since a
+            // person is looking right at those controls), Vision's "speak"
+            // toggle is an explicit opt-in to automatic narration, and the
+            // description text is already guaranteed visible above (see the
+            // animation-frame wait above), so speaking immediately here is
+            // the intended behavior, not the autoplay-before-text bug that
+            // affected the Audio tab.
+            window.speechSynthesis?.speak(new SpeechSynthesisUtterance(stripMarkdownForSpeech(description)));
+          } else if (url) {
             new Audio(url).play();
           }
         } catch {

@@ -176,7 +176,8 @@ export async function generateGame(opts: GameOptions, logFn: LogFn, callText: Te
   if (opts.iterate && opts.previousCode) {
     logFn('Applying your change request to the existing game…');
     const instruction = buildGameIteratePrompt(opts.previousCode, opts.concept);
-    return generateWithRetry(() => instruction, extractGameHtml, callText, logFn, 'Iteration');
+    const iterated = await generateWithRetry(() => instruction, extractGameHtml, callText, logFn, 'Iteration');
+    return injectErrorBanner(iterated);
   }
 
   logFn('Stage 1/2 — structure agent: building HTML/CSS scaffolding…');
@@ -204,9 +205,34 @@ export async function generateGame(opts: GameOptions, logFn: LogFn, callText: Te
   );
 
   const finalHtml = structureHtml.includes('GAME_LOGIC_PLACEHOLDER')
-    ? structureHtml.replace('// GAME_LOGIC_PLACEHOLDER', logicCode)
-    : structureHtml.replace(/<script>\s*<\/script>/i, `<script>${logicCode}</script>`);
+    ? structureHtml.replace('// GAME_LOGIC_PLACEHOLDER', () => logicCode)
+    : structureHtml.replace(/<script>\s*<\/script>/i, () => `<script>${logicCode}</script>`);
 
   logFn('Assembled final game from both stages.', 'info');
-  return finalHtml;
+  return injectErrorBanner(finalHtml);
+}
+
+/**
+ * Deterministically (not LLM-dependent, so it's always present regardless of
+ * what either agent produced) wires up a window.onerror handler that shows
+ * a visible banner if the game's own JS throws. Without this, a script
+ * error left the page as whatever bare HTML/CSS scaffolding the structure
+ * agent wrote — background color, score display, touch buttons — with no
+ * actual game running and no indication anything had gone wrong, which is
+ * exactly what "still generating garbage" describes from the outside.
+ */
+function injectErrorBanner(html: string): string {
+  const banner = `<script>
+window.addEventListener('error', function(e) {
+  var el = document.getElementById('__gameErrorBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '__gameErrorBanner';
+    el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#c4644a;color:#fff;font:12px/1.5 monospace;padding:10px 14px;white-space:pre-wrap;';
+    document.body.appendChild(el);
+  }
+  el.textContent = 'Game script error: ' + (e.message || e) + (e.lineno ? (' (line ' + e.lineno + ')') : '');
+});
+</script>`;
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, () => banner + '</body>') : html + banner;
 }

@@ -2,6 +2,7 @@ import { Mode } from './Mode';
 import { ChipGroup } from '../components/ChipGroup';
 import { EventBus } from '../../core/EventBus';
 import { wireMicButton } from '../VoiceInput';
+import { stripMarkdownForSpeech } from '../../core/textUtils';
 
 export class TextMode extends Mode {
   private promptInput: HTMLTextAreaElement | null = null;
@@ -105,7 +106,7 @@ export class TextMode extends Mode {
         btn.textContent = '🔊 Read Aloud';
         return;
       }
-      const utter = new SpeechSynthesisUtterance(text);
+      const utter = new SpeechSynthesisUtterance(stripMarkdownForSpeech(text));
       utter.onend = () => { btn.textContent = '🔊 Read Aloud'; };
       utter.onerror = () => { btn.textContent = '🔊 Read Aloud'; };
       window.speechSynthesis.speak(utter);

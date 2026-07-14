@@ -27,6 +27,33 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     retries: 1,
   },
   {
+    // ROOT CAUSE ("Research and Agent tabs errors — need a default provider
+    // that doesn't need provider settings for start"): the research node
+    // already gathers real papers for free from Semantic Scholar/OpenAlex/
+    // arXiv (no key needed, see legacy/research.ts), but the final
+    // synthesis step (turning those papers into an answer) called a
+    // 'research'-type provider — and the ONLY one registered
+    // (preset-huggingface-research) requires an API key, with no free
+    // fallback. So research failed by default for anyone who hadn't
+    // configured a keyed provider, on both the Research tab and any Agent
+    // pipeline step using the research node. This reuses the same
+    // zero-setup Puter pipeline that already backs free text generation.
+    id: 'builtin-puter-research',
+    name: 'Puter.js (optional, no key)',
+    type: 'research',
+    adapterId: 'puter',
+    baseUrl: 'puter.ai.chat',
+    authType: 'none',
+    priority: 200,
+    enabled: true,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    notes: "Synthesizes the free papers already gathered from Semantic Scholar/OpenAlex/arXiv into an answer, with no signup — enabled by default (priority 200, tried last, after any keyed research provider) so research has a genuine zero-setup path. Same optional paywall-modal caveat as the text provider above.",
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
     id: 'builtin-huggingface-text',
     name: 'Hugging Face (built-in text)',
     type: 'text',
