@@ -86,34 +86,6 @@ export class TextMode extends Mode {
     return 'Text / Voice Output';
   }
 
-  /**
-   * Wires the "Read Aloud" button to the browser's built-in SpeechSynthesis
-   * API (same mechanism as BrowserSpeechAdapter's TTS fallback) so the
-   * generated text can be read back without needing a keyed speech provider.
-   * Toggles between "Read Aloud" and "Stop" while speaking.
-   */
-  private wireReadAloud(text: string): void {
-    const btn = document.getElementById('readAloudBtn') as HTMLButtonElement | null;
-    if (!btn) return;
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-      btn.disabled = true;
-      btn.title = "This browser doesn't support speech synthesis.";
-      return;
-    }
-    btn.addEventListener('click', () => {
-      if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
-        btn.textContent = '🔊 Read Aloud';
-        return;
-      }
-      const utter = new SpeechSynthesisUtterance(stripMarkdownForSpeech(text));
-      utter.onend = () => { btn.textContent = '🔊 Read Aloud'; };
-      utter.onerror = () => { btn.textContent = '🔊 Read Aloud'; };
-      window.speechSynthesis.speak(utter);
-      btn.textContent = '⏹ Stop Reading';
-    });
-  }
-
   private async handleGenerate(): Promise<void> {
     const prompt = this.promptInput?.value || '';
     if (!prompt) {
@@ -171,10 +143,8 @@ export class TextMode extends Mode {
       if (stage) {
         stage.innerHTML = `
           <div class="result-text">${output}</div>
-          <div class="result-actions">
-            <button class="ghost-btn" id="readAloudBtn">🔊 Read Aloud</button>
-          </div>`;
-        this.wireReadAloud(output);
+          ${this.renderReadAloudBlock(stripMarkdownForSpeech(output))}`;
+        this.wireReadAloudControls();
       }
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'text', prompt, result: output, resultType: 'text',
