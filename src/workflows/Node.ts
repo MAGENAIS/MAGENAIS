@@ -339,26 +339,7 @@ export class CodingNodeExecutor extends BaseNodeExecutor {
     // keyed 'coding'-type preset — regardless of how many text providers
     // (including free/no-key ones) were configured. Fixed to actually pass
     // 'text', matching what the comment above always said it should do.
-    //
-    // Coding-specialized model default for Ollama: per the requested default
-    // priority ("Ollama — Qwen2.5-Coder or DeepSeek-Coder"), steer Ollama
-    // specifically toward a code model rather than its general-purpose
-    // "llama3.2" default — `modelAdapterHint` (the same mechanism the
-    // Pollinations "Preferred model" aliases already use) means this ONLY
-    // overrides the model when the provider actually picked from the
-    // fallback chain is Ollama; every other provider keeps using its own
-    // configured defaultModel. Explicitly picking a language/coding model
-    // via node.config still always wins.
-    const explicitModel = node.config?.model;
-    return this.callProvider(
-      node,
-      { prompt },
-      context,
-      explicitModel
-        ? { model: explicitModel } // user/UI picked a specific model — leave modelAdapterHint at its normal default (Pollinations aliases)
-        : { model: 'qwen2.5-coder', modelAdapterHint: 'ollama' }, // no explicit model — steer Ollama toward a coding model, other providers keep their own default
-      'text'
-    );
+    return this.callProvider(node, { prompt }, context, { model: node.config?.model }, 'text');
   }
 }
 

@@ -1,5 +1,4 @@
 import { Mode } from './Mode';
-import { stripMarkdownForSpeech } from '../../core/textUtils';
 
 export class DocMode extends Mode {
   private uploadedFile: File | null = null;
@@ -121,20 +120,14 @@ export class DocMode extends Mode {
       html += `<p class="field-label">Question</p><div class="doc-summary-block" style="margin-bottom:14px;"><div class="result-text">${question}</div></div>`;
     }
     if (summary) {
-      html += `<p class="field-label">${question ? 'Answer' : 'Summary'}</p><div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${summary}</div>${this.renderReadAloudBlock(stripMarkdownForSpeech(summary), question ? 'Read Answer Aloud' : 'Read Summary Aloud')}</div>`;
+      html += `<p class="field-label">${question ? 'Answer' : 'Summary'}</p><div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${summary}</div></div>`;
     }
     if (extracted) {
       html += `<details class="adv"><summary>Extracted text (${extracted.length.toLocaleString()} characters)</summary><div class="adv-body"><div class="result-text" style="white-space:pre-wrap; max-height:340px; overflow:auto;">${extracted.slice(0, 20000)}</div></div></details>`;
     }
     stage.innerHTML = html || '<div class="empty-text">No text could be extracted.</div>';
-    this.wireReadAloudControls();
   }
 
-  deactivate(): void {
-    // Stop any in-progress read-aloud playback when leaving the tab.
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-  }
+  deactivate(): void {}
   getTitle(): string { return 'Documents'; }
 }

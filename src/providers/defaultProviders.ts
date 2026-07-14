@@ -8,178 +8,6 @@ import { ProviderConfig } from './types';
 
 export const DEFAULT_PROVIDERS: ProviderConfig[] = [
   // ============================================================
-  // TRUE ZERO-SETUP DEFAULTS — Local > Browser > Free Public
-  // ------------------------------------------------------------
-  // These are what actually makes MAGENAIS "fully functional after install
-  // with zero API keys and zero paid services" (see OllamaAdapter.ts,
-  // WebLLMAdapter.ts, TransformersAdapter.ts, PollinationsFreeImageAdapter.ts,
-  // WikipediaAdapter.ts for the implementations). They sit at the very top
-  // of every fallback chain (lowest `priority` numbers = tried first) and
-  // are all `noKeyNeeded: true` + `enabled: true`, so ProviderManager's
-  // "re-enable free built-ins" rule (see Manager.loadProviders) keeps them
-  // on even if a stray localStorage edit ever turned one off.
-  // ============================================================
-  {
-    id: 'builtin-ollama-text',
-    name: 'Ollama (Local)',
-    type: 'text',
-    adapterId: 'ollama',
-    baseUrl: 'http://localhost:11434',
-    authType: 'none',
-    defaultModel: 'llama3.2',
-    priority: 1,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Requirement #4 local-provider default: if the free, open-source Ollama runtime (ollama.com) is installed and running on this machine, MAGENAIS detects it automatically (a fast /api/tags health check, see OllamaAdapter.testConnection) and routes Text, Coding, Agents, and Research synthesis through it first, completely private, completely free, no signup, no API key. If Ollama is not installed, this entrys health check simply fails and the fallback chain moves on to WebLLM/Transformers.js in the browser, then Puter, then any keyed provider you enable. Pull a model with e.g. "ollama pull llama3.2" (general) or "ollama pull qwen2.5-coder" (coding, used automatically for Coding-tab requests, see CodingNodeExecutor).',
-    timeoutMs: 60000,
-    retries: 1,
-  },
-  {
-    id: 'builtin-ollama-research',
-    name: 'Ollama (Local)',
-    type: 'research',
-    adapterId: 'ollama',
-    baseUrl: 'http://localhost:11434',
-    authType: 'none',
-    defaultModel: 'llama3.2',
-    priority: 1,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Synthesizes the free papers already gathered from Semantic Scholar/OpenAlex/arXiv (see legacy/research.ts) into an answer, using a local Ollama model when available, no key, no signup, nothing leaves this machine.',
-    timeoutMs: 60000,
-    retries: 1,
-  },
-  {
-    id: 'builtin-ollama-agents',
-    name: 'Ollama (Local)',
-    type: 'agents',
-    adapterId: 'ollama',
-    baseUrl: 'http://localhost:11434',
-    authType: 'none',
-    defaultModel: 'llama3.2',
-    priority: 1,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Reserved for future dedicated agent tool-use requests; the current Agents-tab pipeline steps route through the far larger text provider pool (this entry included) rather than this narrower agents pool, see AgentsMode/Node.ts.',
-    timeoutMs: 60000,
-    retries: 1,
-  },
-  {
-    id: 'builtin-webllm-text',
-    name: 'WebLLM (Browser, WebGPU)',
-    type: 'text',
-    adapterId: 'webllm',
-    baseUrl: 'browser:webllm',
-    authType: 'none',
-    defaultModel: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',
-    priority: 8,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Requirement #4 browser/local model default, the step reached when no local Ollama server is detected. Runs a real LLM entirely inside this browser tab via WebGPU, no server, no key, no signup. Needs a WebGPU-capable browser (current desktop Chrome/Edge); the model downloads once (a few hundred MB) and is cached by the browser afterward. If WebGPU is not available, this entrys health check fails cleanly and the chain moves on to Puter / any keyed provider.',
-    timeoutMs: 120000,
-    retries: 0,
-  },
-  {
-    id: 'builtin-transformers-vision',
-    name: 'Transformers.js Vision (Browser, no key)',
-    // NOTE: 'vision' is not a distinct ProviderType, Vision-tab requests are
-    // routed by ProviderManager.callVision() through the 'text' provider
-    // pool, filtered down to adapters registered as vision-capable (see
-    // VISION_CAPABLE_ADAPTERS in registry/Manager.ts, which now includes
-    // 'transformers'). Registering this as type: 'text' (rather than
-    // inventing a non-existent 'vision' ProviderType) is what makes it show
-    // up as a real Vision candidate without any type-system changes.
-    type: 'text',
-    adapterId: 'transformers',
-    baseUrl: 'browser:transformers',
-    authType: 'none',
-    defaultModel: 'Xenova/vit-gpt2-image-captioning',
-    priority: 40,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Requirement default for VISION: local, in-browser image captioning via Transformers.js/ONNX Runtime Web, works with zero keys and no camera data ever leaving the device. It captions the image but (unlike a full multimodal chat model) cannot answer arbitrary open-ended questions about it, the adapter notes this plainly in its output and suggests enabling a multimodal provider (Anthropic/Gemini) for that. Priority 40 keeps it below Puters free-but-usage-risky vision path (also zero-key) and below any multimodal provider you have keyed, but well above every disabled-by-default keyed vision option, guaranteeing Vision always produces some real result out of the box.',
-    timeoutMs: 60000,
-    retries: 0,
-  },
-  {
-    id: 'builtin-transformers-audio',
-    name: 'Transformers.js Whisper (Browser, no key)',
-    type: 'audio',
-    adapterId: 'transformers',
-    baseUrl: 'browser:transformers',
-    authType: 'none',
-    defaultModel: 'Xenova/whisper-tiny.en',
-    priority: 5,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Requirement default for AUDIO (speech-to-text): runs OpenAIs Whisper model locally in the browser via Transformers.js/ONNX Runtime Web, no key, fully offline after the first (cached) model download. This is what the mic button (src/ui/VoiceInput.ts) and any future Audio-upload transcription feature fall back on when the browsers native SpeechRecognition API is unavailable or fails.',
-    timeoutMs: 120000,
-    retries: 0,
-  },
-  {
-    id: 'builtin-transformers-music',
-    name: 'Transformers.js MusicGen (Browser, no key)',
-    type: 'music',
-    adapterId: 'transformers',
-    baseUrl: 'browser:transformers',
-    authType: 'none',
-    defaultModel: 'Xenova/musicgen-small',
-    priority: 40,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Requirement default for MUSIC: MusicGen running locally via Transformers.js, no key needed, but it is a large model and generation is genuinely slow (tens of seconds to minutes) on CPU-only/WASM execution, and this class of in-browser audio generation is still comparatively experimental. Kept enabled as the honest zero-key default per the never-require-keys-for-first-use rule; enabling a keyed Music provider (Hugging Face MusicGen, Stable Audio, ...) in Advanced Settings will give noticeably faster results.',
-    timeoutMs: 180000,
-    retries: 0,
-  },
-  {
-    id: 'builtin-pollinations-free-image',
-    name: 'Pollinations (Free Image, no key)',
-    type: 'image',
-    adapterId: 'pollinations-free',
-    baseUrl: 'https://image.pollinations.ai',
-    authType: 'none',
-    defaultModel: 'flux',
-    priority: 5,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Requirement default for IMAGE: Pollinations original, still-live, genuinely unauthenticated image endpoint (image.pollinations.ai, distinct from gen.pollinations.ai, which now requires a Pollen API key for everything, see PollinationsAdapters notes). Free, unlimited-for-reasonable-use, no signup. This is also what makes VIDEO work with zero keys by default: KenBurnsFallbackAdapter (the built-in last-resort video provider) generates its source still image through this same free image pipeline, then pans/zooms it into a real video file, so Image being free-by-default cascades into Video being free-by-default too.',
-    timeoutMs: 30000,
-    retries: 1,
-  },
-  {
-    id: 'builtin-wikipedia-research',
-    name: 'Wikipedia (Free, no key)',
-    type: 'research',
-    adapterId: 'wikipedia',
-    baseUrl: 'https://en.wikipedia.org',
-    authType: 'none',
-    priority: 210,
-    enabled: true,
-    noKeyNeeded: true,
-    isPreset: true,
-    isBuiltIn: true,
-    notes: 'Absolute last-resort research/search fallback, deliberately the single lowest-priority provider in the entire default set (higher than even Puters 200), since it does not use an LLM at all: it looks up the best-matching Wikipedia article and returns its summary directly. Only reached if every other research provider (the free papers-synthesis pipeline via Ollama/WebLLM/Puter, and any keyed provider you have enabled) is unavailable, but guarantees the Research tab never hard-fails with "no provider available" on a totally fresh install with a browser that lacks WebGPU.',
-    timeoutMs: 15000,
-    retries: 1,
-  },
-
-  // ============================================================
   // BUILT-IN PROVIDERS (from index.html)
   // ============================================================
   {
@@ -234,7 +62,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'Qwen/Qwen3-32B-Instruct',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -251,7 +79,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'openai',
     priority: 18,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -268,7 +96,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'flux',
     priority: 18,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -285,7 +113,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'black-forest-labs/FLUX.1-dev',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -302,7 +130,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'Wan-AI/Wan2.1-T2V-14B',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -319,7 +147,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'hexgrad/Kokoro-82M',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -336,7 +164,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'openai/whisper-large-v3',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -353,7 +181,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'facebook/musicgen-large',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -370,7 +198,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'elevenmusic',
     priority: 18,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
@@ -439,7 +267,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'llama-3.3-70b-versatile',
     priority: 11,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -456,7 +284,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
     priority: 12,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -473,7 +301,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'llama-3.3-70b',
     priority: 13,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -490,7 +318,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'Meta-Llama-3.3-70B-Instruct',
     priority: 14,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -507,7 +335,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'openai/gpt-4o-mini',
     priority: 15,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -527,7 +355,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: '@cf/meta/llama-3.1-8b-instruct',
     priority: 16,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -544,7 +372,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
     priority: 30,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -561,7 +389,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -578,7 +406,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'meta-llama/Meta-Llama-3.1-70B-Instruct',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -595,7 +423,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'gpt-4o-mini',
     priority: 15,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -613,7 +441,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'x-api-key',
     defaultModel: 'claude-3-5-haiku-latest',
     priority: 15,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -632,7 +460,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authQueryParam: 'key',
     defaultModel: 'gemini-1.5-flash',
     priority: 15,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -649,7 +477,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'grok-2-latest',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -666,7 +494,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'mistral-small-latest',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -683,7 +511,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'black-forest-labs/FLUX.1-dev',
     priority: 30,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -700,7 +528,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: '@cf/black-forest-labs/flux-1-schnell',
     priority: 31,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -717,7 +545,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'black-forest-labs/flux-1-schnell:free',
     priority: 32,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -735,7 +563,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'Authorization',
     defaultModel: 'fal-ai/flux/schnell',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -753,7 +581,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'Authorization',
     defaultModel: 'black-forest-labs/flux-schnell',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -770,7 +598,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'stable-image-core',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -787,7 +615,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'Wan-AI/Wan2.1-T2V-14B',
     priority: 30,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -804,7 +632,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'Lightricks/LTX-Video',
     priority: 31,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -821,7 +649,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'Wan-AI/Wan2.2-TI2V-5B',
     priority: 33,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -838,7 +666,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: '@cf/lucataco/stable-video-diffusion',
     priority: 32,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -856,7 +684,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'Authorization',
     defaultModel: 'fal-ai/luma-dream-machine',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -874,7 +702,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'Authorization',
     defaultModel: 'minimax/video-01',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -891,7 +719,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'default',
     priority: 30,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -908,7 +736,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'wan',
     priority: 80,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -925,7 +753,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'whisper-large-v3-turbo',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -942,7 +770,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'openai/whisper-large-v3',
     priority: 30,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -959,7 +787,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: '@cf/openai/whisper',
     priority: 31,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -977,7 +805,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'Authorization',
     defaultModel: 'nova-2',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -995,7 +823,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'Authorization',
     defaultModel: 'default',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1013,7 +841,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'xi-api-key',
     defaultModel: 'eleven_multilingual_v2',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1030,7 +858,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'hexgrad/Kokoro-82M',
     priority: 35,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1047,7 +875,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'none',
     defaultModel: '',
     priority: 40,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1065,7 +893,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authHeaderName: 'Authorization',
     defaultModel: 'PlayHT2.0',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1082,7 +910,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'facebook/musicgen-large',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1099,7 +927,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'stable-audio-2',
     priority: 25,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1133,7 +961,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'openai/gpt-4o-mini',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1151,7 +979,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
     priority: 20,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
@@ -1185,7 +1013,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     authType: 'bearer',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
     priority: 30,
-    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    enabled: true,
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,

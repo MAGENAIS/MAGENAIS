@@ -1,6 +1,5 @@
 import { Mode } from './Mode';
 import { NODE_PRIMARY_INPUT_KEY } from '../../workflows/nodeInputKeys';
-import { stripMarkdownForSpeech } from '../../core/textUtils';
 
 export class AgentsMode extends Mode {
   private personas: any[] = [];
@@ -279,7 +278,6 @@ export class AgentsMode extends Mode {
         const step = this.pipelineSteps[idx];
         const personaLabel = step.personaId ? ' (' + (this.personas.find(p=>p.id===step.personaId)?.name || '') + ')' : '';
         let body: string;
-        let readAloudText: string | null = null;
         if (nr.status === 'failed') {
           const div = document.createElement('div');
           div.textContent = nr.error || 'unknown error';
@@ -298,36 +296,24 @@ export class AgentsMode extends Mode {
           // "[object Object]". Render text as text, and stringify
           // anything else properly instead of relying on that coercion.
           const div = document.createElement('div');
-          const textOutput = typeof nr.output === 'string'
+          div.textContent = typeof nr.output === 'string'
             ? nr.output
             : (nr.output && typeof nr.output === 'object' && typeof (nr.output as any).url === 'string')
               ? (nr.output as any).url
               : JSON.stringify(nr.output, null, 2);
-          div.textContent = textOutput;
           body = `<div class="result-text">${div.innerHTML}</div>`;
-          // Only offer read-aloud for genuinely spoken-word-worthy text
-          // output (not a bare URL and not raw JSON from a non-text step).
-          if (typeof nr.output === 'string' && !nr.output.startsWith('http')) {
-            readAloudText = textOutput;
-          }
         }
         html += `<div class="doc-summary-block" style="margin-bottom:16px;">
           <p class="field-label" style="margin-bottom:6px;">Step ${idx+1} — ${step.modeType}${personaLabel}</p>
           ${body}
-          ${readAloudText ? this.renderReadAloudBlock(stripMarkdownForSpeech(readAloudText), `Read Step ${idx + 1} Aloud`) : ''}
         </div>`;
       });
       if (stage) stage.innerHTML = html;
-      this.wireReadAloudControls();
     } catch (err: any) {
       this.renderError(err);
     }
   }
 
-  deactivate(): void {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-  }
+  deactivate(): void {}
   getTitle(): string { return 'Pipeline Results'; }
 }

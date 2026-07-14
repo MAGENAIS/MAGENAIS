@@ -105,24 +105,6 @@ export class ProviderManager {
         p = { ...p, baseUrl: trueDefault.baseUrl, defaultModel: trueDefault.defaultModel };
         Logger.info(`ProviderManager: migrated "${p.name}" off the decommissioned GitHub Models endpoint.`);
       }
-      // One-time migration for requirement #3/#9 ("paid/keyed providers must
-      // never be selected by default"): earlier app versions shipped every
-      // keyed preset with `enabled: true` out of the box. That's exactly
-      // the "selected by default" behavior this refactor removes (see
-      // defaultProviders.ts, where every keyed entry is now
-      // `enabled: false`) — but an existing install's *stored* copy still
-      // has the old `enabled: true`, and the general "stored always wins"
-      // rule above would otherwise preserve that stale default forever.
-      // Auto-correct it — but ONLY when it's unambiguously an untouched
-      // leftover default: still enabled, still has no API key saved. The
-      // moment a user has actually configured a key, or hand-toggled the
-      // provider (in a version where that also meant "with a key"), this
-      // condition no longer holds and their choice is left completely
-      // alone, same spirit as the GitHub Models migration just above.
-      if (p.isPreset && !p.noKeyNeeded && p.enabled === true && !p.apiKey && trueDefault && trueDefault.enabled === false) {
-        p = { ...p, enabled: false };
-        Logger.info(`ProviderManager: "${p.name}" requires an API key and was never configured with one — moved to disabled-by-default (enable it any time in Keys & Providers).`);
-      }
       if (existing) {
         // Merge: stored values take precedence, but we keep the id and type from default if missing
         mergedMap.set(p.id, { ...existing, ...p });
@@ -317,13 +299,7 @@ export class ProviderManager {
     // the *model* the user picked for that provider supports image input,
     // which the fallback chain below surfaces as a clear per-provider
     // error rather than pretending only a fixed list could ever work.
-    // 'transformers' (Transformers.js image captioning, fully local/no-key)
-    // and 'ollama' (only useful if the user has pulled a vision-capable
-    // model like "llava" and set it as that provider's Preferred model) are
-    // included so Vision has a genuine zero-setup path — see
-    // builtin-transformers-vision in defaultProviders.ts, which is what
-    // guarantees this list is never empty on a fresh install.
-    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'transformers', 'ollama'];
+    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible'];
     const candidates = router
       .getSortedProviders('text')
       .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey));

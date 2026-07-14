@@ -1,5 +1,4 @@
 import { Mode } from './Mode';
-import { stripMarkdownForSpeech } from '../../core/textUtils';
 
 const SOURCES = [
   { key: 'semanticscholar', label: 'Semantic Scholar' },
@@ -98,7 +97,7 @@ export class ResearchMode extends Mode {
       ).join('')}</div>`;
     }
     if (summary) {
-      html += `<div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${summary}</div>${this.renderReadAloudBlock(stripMarkdownForSpeech(summary), 'Read Summary Aloud')}</div>`;
+      html += `<div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${summary}</div></div>`;
     }
     if (papers?.length) {
       html += `<p class="field-label">Sources (${papers.length})</p>`;
@@ -111,13 +110,8 @@ export class ResearchMode extends Mode {
       `).join('');
     }
     stage.innerHTML = html || '<div class="empty-text">No results.</div>';
-    this.wireReadAloudControls();
   }
 
-  deactivate(): void {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-  }
+  deactivate(): void {}
   getTitle(): string { return 'Research'; }
 }
