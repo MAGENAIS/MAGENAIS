@@ -120,7 +120,7 @@ export class VideoMode extends Mode {
         mode: 'video', prompt, result: url, resultType: 'video',
       });
     } catch (err: any) {
-      if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
+      this.renderError(err);
     }
   }
 

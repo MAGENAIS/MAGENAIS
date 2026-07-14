@@ -35,6 +35,7 @@ export abstract class Mode {
   protected async runGuarded(buttonId: string, task: () => Promise<void>): Promise<void> {
     if (this.isBusy) return;
     this.isBusy = true;
+    this.clearLog();
     const btn = document.getElementById(buttonId) as HTMLButtonElement | null;
     const originalLabel = btn?.textContent ?? '';
     if (btn) {
@@ -58,15 +59,56 @@ export abstract class Mode {
   }
 
   /**
-   * Shared error rendering for the output stage, used by runGuarded's
-   * safety net and available to subclasses for consistent error display.
+   * Shared error rendering, used by runGuarded's safety net and available
+   * to subclasses for consistent error display.
+   *
+   * ROOT CAUSE of "error/status text shows above the generated content":
+   * every mode used to write its error straight into `.stage` — the same
+   * element that holds the actual result — which put the error message at
+   * the very top of the panel, ahead of (or in place of) any content.
+   * `#logPanel` (declared once in App.ts's shell markup, after `.stage`)
+   * exists precisely to hold this kind of pipeline status/error text below
+   * the generated content instead. Only reset `.stage` to a neutral state
+   * here when it doesn't already hold a real result — a failure partway
+   * through a multi-part pipeline (e.g. podcast script generated but TTS
+   * failed) should keep showing what DID succeed, with the error appended
+   * below it, not blow away work that already rendered.
    */
   protected renderError(err: any): void {
+    const message = err?.message || String(err);
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement | null;
-    if (stage) {
-      const message = err?.message || String(err);
-      stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${message}</div>`;
+    if (stage && !stage.querySelector('.result-text, .result-media, .doc-summary-block')) {
+      stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Generation failed — see details below.</div>`;
     }
+    this.appendLog(message, 'error');
+  }
+
+  /**
+   * Appends a status/error line to the log panel below the stage. Modes use
+   * this for pipeline success/failure/warning text so it always lands after
+   * the generated content rather than before it.
+   */
+  protected appendLog(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
+    const log = this.outputPanel.querySelector('#logPanel') as HTMLElement | null;
+    if (!log) return;
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const line = document.createElement('div');
+    line.className = `log-line ${level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'ok'}`;
+    const t = document.createElement('span');
+    t.className = 't';
+    t.textContent = time;
+    const msg = document.createElement('span');
+    msg.className = 'msg';
+    msg.textContent = (level === 'error' ? '⚠ Error: ' : level === 'warn' ? '⚠ ' : '') + message;
+    line.appendChild(t);
+    line.appendChild(msg);
+    log.appendChild(line);
+  }
+
+  /** Clears the log panel — call at the start of a new generation. */
+  protected clearLog(): void {
+    const log = this.outputPanel.querySelector('#logPanel') as HTMLElement | null;
+    if (log) log.innerHTML = '';
   }
 
   /**
@@ -99,5 +141,52 @@ export abstract class Mode {
   protected renderOutput(html: string): void {
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
     if (stage) stage.innerHTML = html;
+  }
+
+  /**
+   * Shared markup for playing back generated audio (speech/music/podcast).
+   * Deliberately does NOT autoplay and exposes explicit Play/Pause/Stop
+   * buttons rather than relying on the browser's native <audio controls>
+   * (which only offers play/pause, no true stop-and-rewind). Callers that
+   * display accompanying text (e.g. a podcast script) should put this block
+   * AFTER that text in the DOM, so the text is visible before playback ever
+   * starts rather than autoplay talking over an unread page.
+   */
+  protected renderAudioBlock(url: string, opts: { filename?: string; downloadLabel?: string } = {}): string {
+    const id = 'player-' + Math.random().toString(36).slice(2, 9);
+    const filename = opts.filename || 'magen-audio';
+    const downloadLabel = opts.downloadLabel || 'Download Audio';
+    return `
+      <div class="result-media">
+        <audio id="${id}" src="${url}" preload="metadata"></audio>
+        <div class="audio-controls">
+          <button type="button" class="ghost-btn" data-audio-action="play" data-target="${id}">▶ Play</button>
+          <button type="button" class="ghost-btn" data-audio-action="pause" data-target="${id}">⏸ Pause</button>
+          <button type="button" class="ghost-btn" data-audio-action="stop" data-target="${id}">⏹ Stop</button>
+        </div>
+        <div class="result-actions">
+          <a href="${url}" download="${filename}"><button type="button" class="ghost-btn">${downloadLabel}</button></a>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Wires up every `[data-audio-action]` button under `root` (defaults to
+   * the whole output panel) to its `data-target` <audio> element's
+   * play/pause/stop. Call this once after inserting HTML built with
+   * `renderAudioBlock`.
+   */
+  protected wireAudioControls(root: HTMLElement = this.outputPanel): void {
+    root.querySelectorAll('[data-audio-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = (btn as HTMLElement).dataset.target;
+        const audio = targetId ? document.getElementById(targetId) as HTMLAudioElement | null : null;
+        if (!audio) return;
+        const action = (btn as HTMLElement).dataset.audioAction;
+        if (action === 'play') audio.play();
+        else if (action === 'pause') audio.pause();
+        else if (action === 'stop') { audio.pause(); audio.currentTime = 0; }
+      });
+    });
   }
 }

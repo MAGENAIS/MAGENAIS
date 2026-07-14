@@ -90,7 +90,7 @@ export class AgentsMode extends Mode {
 
     // Add pipeline step
     document.getElementById('addPipelineStepBtn')?.addEventListener('click', () => {
-      this.pipelineSteps.push({ id: 'step-' + Date.now(), modeType: 'text', promptTemplate: '{{previous}}', personaId: '' });
+      this.pipelineSteps.push({ id: 'step-' + Date.now(), modeType: 'text', promptTemplate: '', personaId: '' });
       this.saveState();
       this.renderPipelineSteps();
     });
@@ -108,7 +108,15 @@ export class AgentsMode extends Mode {
     if (!this.personas.length) {
       // default example
       this.personas = [];
-      this.pipelineSteps = [{ id: 'step1', modeType: 'research', promptTemplate: 'Latest research on {{previous}}', personaId: '' }];
+      // ROOT CAUSE of "prompt box already has example text in it when the tab
+      // opens": this seeded the step's actual promptTemplate value (not just
+      // its placeholder) with example copy, so it rendered as real content in
+      // the textarea (line 191 binds `${step.promptTemplate}` verbatim) that
+      // had to be manually deleted before typing. The textarea already shows
+      // the same example via its `placeholder` attribute below, which is the
+      // correct place for hint text — it displays only when empty and clears
+      // itself the moment the user starts typing.
+      this.pipelineSteps = [{ id: 'step1', modeType: 'research', promptTemplate: '', personaId: '' }];
     }
   }
 
@@ -302,7 +310,7 @@ export class AgentsMode extends Mode {
       });
       if (stage) stage.innerHTML = html;
     } catch (err: any) {
-      if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
+      this.renderError(err);
     }
   }
 

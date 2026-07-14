@@ -82,7 +82,7 @@ export class ResearchMode extends Mode {
         mode: 'research', prompt: query, result: result.finalOutput?.summary, resultType: 'text',
       });
     } catch (err: any) {
-      if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
+      this.renderError(err);
     }
   }
 

@@ -55,6 +55,33 @@ function extractCodeBlock(raw: string): string {
   return code;
 }
 
+/**
+ * Safety net behind the "REQUIRED for a scene that actually looks 3D" prompt
+ * instructions above: an LLM can still ignore part of a long prompt (most
+ * often: it writes real Three.js geometry but skips lighting, or uses
+ * MeshBasicMaterial, both of which render as flat/unlit — exactly the "still
+ * looks 2D" complaint even though a 3D engine was requested and technically
+ * used). Checking for these markers and throwing lets the existing
+ * generateWithRetry loop above retry with a fresh attempt instead of quietly
+ * shipping a flat-looking "3D" game.
+ */
+function validateThreeJsQuality(code: string): string {
+  const hasThree = /THREE\.(Scene|WebGLRenderer|PerspectiveCamera)/.test(code);
+  if (!hasThree) {
+    throw new Error('3D engine was requested but the generated code has no Three.js scene/renderer/camera setup.');
+  }
+  const hasLight = /THREE\.(AmbientLight|DirectionalLight|PointLight|SpotLight|HemisphereLight)/.test(code);
+  if (!hasLight) {
+    throw new Error('3D scene has no lighting (THREE.*Light) — meshes would render flat/unlit regardless of geometry.');
+  }
+  const hasShadedMaterial = /MeshStandardMaterial|MeshPhongMaterial|MeshLambertMaterial|MeshPhysicalMaterial/.test(code);
+  const onlyBasicMaterial = /MeshBasicMaterial/.test(code) && !hasShadedMaterial;
+  if (onlyBasicMaterial) {
+    throw new Error('3D scene only uses MeshBasicMaterial, which ignores lighting and renders flat/2D-looking.');
+  }
+  return code;
+}
+
 async function generateWithRetry(
   promptBuilder: () => string,
   validator: (raw: string) => string,
@@ -107,7 +134,14 @@ Keep the CSS concise — this is scaffolding only, the JS pass adds the actual c
 
 function buildLogicAgentPrompt(opts: GameOptions, structureHtml: string): string {
   const visualNote = opts.engine === '3d'
-    ? `Every distinct entity type from the concept (player, obstacles, collectibles, enemies, etc.) must be visually distinguishable and thematically appropriate — use different mesh shapes/colors/proportions per entity type that clearly suggest what they represent (e.g. a green rounded/squashed shape for a frog, gray irregular boxes for stones), not identical plain cubes for everything.`
+    ? `Every distinct entity type from the concept (player, obstacles, collectibles, enemies, etc.) must be visually distinguishable and thematically appropriate — use different mesh shapes/colors/proportions per entity type that clearly suggest what they represent (e.g. a green rounded/squashed shape for a frog, gray irregular boxes for stones), not identical plain cubes for everything.
+
+REQUIRED for a scene that actually looks 3D (not flat/cartoonish — this is the single biggest quality issue to avoid):
+- Add real lighting: at least one THREE.AmbientLight (low intensity, for fill) PLUS one THREE.DirectionalLight or THREE.PointLight (higher intensity, positioned off-axis so it casts visible shading across faces) added to the scene.
+- Use THREE.MeshStandardMaterial or THREE.MeshPhongMaterial for every mesh (NOT MeshBasicMaterial, which ignores lighting entirely and renders as flat, unlit color — this alone is what makes a scene look 2D/flat even with real 3D geometry).
+- Set scene.background to a THREE.Color (not left black/default) and add THREE.Fog for depth cueing on anything with distance (roads, terrain, skies).
+- Position the camera with a real perspective vantage (THREE.PerspectiveCamera, FOV 50-75, positioned above/behind the action, angled downward) rather than a flat frontal/orthographic-looking view — the ground plane should visibly recede toward a horizon.
+- Give the ground/floor plane visible width via THREE.PlaneGeometry (or similar) with the material rules above so it catches light and shows perspective, instead of a bare colored background.`
     : `Every distinct entity type from the concept (player, obstacles, collectibles, enemies, etc.) MUST be drawn as a large, readable emoji or Unicode symbol via ctx.font (e.g. "32px serif") + ctx.fillText at its position — pick the emoji that actually matches what the concept describes (a frog game's player should visibly be a frog emoji like 🐸, its obstacles should visibly be stones like 🪨, etc.), not a plain filled rectangle/circle. This is the single most important requirement: the concept must be immediately recognizable just by looking at the game, not just functionally implemented.`;
   const engineNote = opts.engine === '3d'
     ? 'Three.js (r128 — no OrbitControls, no CapsuleGeometry; use BoxGeometry/SphereGeometry/CylinderGeometry and manual camera control)'
@@ -161,7 +195,9 @@ export async function generateGame(opts: GameOptions, logFn: LogFn, callText: Te
   logFn(`Stage 2/2 — logic agent: writing the ${opts.engine === '3d' ? '3D' : '2D'} game loop…`);
   const logicCode = await generateWithRetry(
     () => buildLogicAgentPrompt(opts, structureHtml),
-    extractCodeBlock,
+    opts.engine === '3d'
+      ? (raw: string) => validateThreeJsQuality(extractCodeBlock(raw))
+      : extractCodeBlock,
     callText,
     logFn,
     'Logic agent'

@@ -217,15 +217,17 @@ export class AudioMode extends Mode {
         const result = await this.kernel.getWorkflowEngine().execute(workflow, { text: prompt });
         const url = result.finalOutput;
         if (stage) {
-          stage.innerHTML = url === '__BROWSER_TTS_PLAYED__'
-            ? `<div class="hint" style="color:var(--moss);">✓ Played live via your browser's built-in voice (no downloadable file — this happens when no keyed speech provider is configured; add one in Keys & Providers to get a downloadable file).</div>`
-            : `
-            <div class="result-media">
-              <audio src="${url}" controls autoplay></audio>
-              <div class="result-actions">
-                <a href="${url}" download="magen-audio"><button class="ghost-btn">Download Audio</button></a>
-              </div>
-            </div>`;
+          if (url === '__BROWSER_TTS_PLAYED__') {
+            stage.innerHTML = `<div class="result-text">${prompt}</div>`;
+            this.appendLog("Played live via your browser's built-in voice — no downloadable file. Add a keyed speech provider in Keys & Providers to get one.", 'warn');
+          } else {
+            // Text shown first, player (no autoplay, explicit play/pause/stop) after —
+            // see Mode.renderAudioBlock for why this doesn't autoplay.
+            stage.innerHTML = `
+              <div class="result-text" style="margin-bottom:14px;">${prompt}</div>
+              ${this.renderAudioBlock(url, { filename: 'magen-audio', downloadLabel: 'Download Audio' })}`;
+            this.wireAudioControls(stage);
+          }
         }
         if (url !== '__BROWSER_TTS_PLAYED__') {
           this.kernel.getStore().getActions().addHistoryEntry({
@@ -255,13 +257,8 @@ export class AudioMode extends Mode {
         const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt });
         const url = result.finalOutput;
         if (stage) {
-          stage.innerHTML = `
-            <div class="result-media">
-              <audio src="${url}" controls autoplay></audio>
-              <div class="result-actions">
-                <a href="${url}" download="magen-music"><button class="ghost-btn">Download Audio</button></a>
-              </div>
-            </div>`;
+          stage.innerHTML = this.renderAudioBlock(url, { filename: 'magen-music', downloadLabel: 'Download Audio' });
+          this.wireAudioControls(stage);
         }
         this.kernel.getStore().getActions().addHistoryEntry({
           mode: 'music', prompt, result: url, resultType: 'audio',
@@ -289,36 +286,36 @@ export class AudioMode extends Mode {
         );
         if (stage) {
           const audioBlock = result.url
-            ? `<div class="result-media" style="margin-bottom:18px;">
-                 <audio src="${result.url}" controls autoplay></audio>
-                 <div class="result-actions">
-                   <a href="${result.url}" download="magen-podcast.wav"><button class="ghost-btn">Download Podcast (.wav)</button></a>
-                 </div>
-               </div>`
-            : `<div class="empty-glyph" style="color:var(--rust);">!</div>
-               <div class="empty-text" style="margin-bottom:18px;">
-                 No downloadable audio file — no enabled, keyed speech provider succeeded
-                 (the script below was spoken aloud using your browser's built-in voice as a
-                 preview only, which can't be saved to a file). Add an API key for at least
-                 one speech provider in Keys &amp; Providers to get a downloadable .wav.
-               </div>`;
+            ? this.renderAudioBlock(result.url, { filename: 'magen-podcast.wav', downloadLabel: 'Download Podcast (.wav)' })
+            : '';
+          if (!result.url) {
+            this.appendLog(
+              'No downloadable audio file — no enabled, keyed speech provider succeeded (the script below was ' +
+              "spoken aloud using your browser's built-in voice as a preview only, which can't be saved to a file). " +
+              'Add an API key for at least one speech provider in Keys & Providers to get a downloadable .wav.',
+              'warn'
+            );
+          }
+          // Script shown first (readable immediately), player after it — see
+          // Mode.renderAudioBlock for why playback doesn't start automatically.
           stage.innerHTML = `
-            ${audioBlock}
             <p class="field-label">Script (${result.lineCount} lines)</p>
-            <div class="doc-summary-block"><div class="result-text">${result.script}</div></div>
-            <div class="result-actions">
+            <div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${result.script}</div></div>
+            <div class="result-actions" style="margin-bottom:${result.url ? '18px' : '0'};">
               <button class="ghost-btn" id="copyPodcastScriptBtn">Copy script</button>
-            </div>`;
+            </div>
+            ${audioBlock}`;
           document.getElementById('copyPodcastScriptBtn')?.addEventListener('click', () => {
             navigator.clipboard.writeText(result.script);
           });
+          this.wireAudioControls(stage);
         }
         this.kernel.getStore().getActions().addHistoryEntry({
           mode: 'podcast', prompt, result: result.url || result.script, resultType: result.url ? 'audio' : 'text',
         });
       }
     } catch (err: any) {
-      if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
+      this.renderError(err);
     }
   }
 

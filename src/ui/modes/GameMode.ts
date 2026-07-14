@@ -90,7 +90,7 @@ export class GameMode extends Mode {
         mode: 'game', prompt: concept, result: html, resultType: 'other',
       });
     } catch (err: any) {
-      if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
+      this.renderError(err);
     }
   }
 

@@ -99,7 +99,7 @@ export class CodingMode extends Mode {
         mode: 'coding', prompt: `[${language}] ${request}`, result: output, resultType: 'text',
       });
     } catch (err: any) {
-      if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
+      this.renderError(err);
     }
   }
 

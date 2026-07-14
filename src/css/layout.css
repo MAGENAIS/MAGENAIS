@@ -238,15 +238,36 @@ section.output {
    each element's own `dir` (left for LTR content, right for RTL content).
    `dir="auto"` is set on `.result-text`/`.doc-summary-block` by a
    MutationObserver in App.ts as they're inserted, so this works per-language
-   automatically instead of hardcoding any particular language's direction. */
+   automatically instead of hardcoding any particular language's direction.
+   ROOT CAUSE of "top of generated content is missing/discarded and overlaps
+   the output header": the base `.stage` rule above centers its content on
+   the vertical (column) axis via `justify-content:center`. That's fine for
+   the empty placeholder, which is always shorter than the stage. But once
+   real content (a long article, an image, an iframe) is taller than the
+   stage's own box, centering makes it overflow EQUALLY above and below the
+   box — and `section.output` (the actual scroll container, see its own
+   comment above) only ever scrolls from 0 downward, so the portion that
+   overflowed upward past the stage's top edge sits behind/overlapping the
+   `.output-header` above it and can never be scrolled into view. Switching
+   to `flex-start` once there's real content makes the stage grow downward
+   from its top edge instead, so all of it lands inside the scrollable area. */
 .stage:has(.result-text), .stage:has(.result-media), .stage:has(.doc-summary-block) {
   align-items:stretch;
   text-align:start;
+  justify-content:flex-start;
 }
-.stage.text-align-left{ align-items:stretch; text-align:left; }
+.stage.text-align-left{ align-items:stretch; text-align:left; justify-content:flex-start; }
 .stage .empty-glyph{ font-family: var(--mono); font-size:34px; color: var(--line-bright); }
 .stage .empty-text{ color: var(--ink-faint); font-size:13px; max-width:380px; line-height:1.6; }
 .stage .empty-text b{ color: var(--ink-dim); }
+
+/* Log panel — sits below .stage in the DOM (see App.ts's getAppShellMarkup)
+   and is where pipeline status/error text belongs: after the generated
+   content, not before it. Collapses to nothing when empty so it never
+   reserves blank space in modes that don't use it. Entries use the
+   .log-line/.t/.msg classes defined further down. */
+#logPanel:empty{ display:none; }
+#logPanel{ padding-top:4px; border-top:1px dashed var(--line); }
 
 /* Footer */
 footer.statusbar {
@@ -378,6 +399,12 @@ details.adv .adv-body{ padding: 4px 12px 14px; display:flex; flex-direction:colu
   box-shadow: 0 8px 30px rgba(0,0,0,0.4);
 }
 .result-media audio{ width:100%; }
+.audio-controls {
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:center;
+}
 .result-actions {
   display:flex;
   gap:8px;

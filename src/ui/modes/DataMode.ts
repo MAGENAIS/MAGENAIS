@@ -141,7 +141,7 @@ export class DataMode extends Mode {
       // Render result with stats, chart, AI text
       this.renderDataResult(stats, chartData, aiText);
     } catch (err: any) {
-      if (stage) stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Error: ${err.message}</div>`;
+      this.renderError(err);
     }
   }
 
