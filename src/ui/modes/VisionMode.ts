@@ -156,6 +156,13 @@ export class VisionMode extends Mode {
       });
 
       if (speak) {
+        // Guarantee the description above is actually painted to the screen
+        // before we start speaking it. The DOM write happens synchronously,
+        // but without an explicit yield to the browser's render step, a
+        // speech provider that resolves quickly (e.g. the browser's own
+        // built-in voice, used whenever no keyed TTS provider is configured)
+        // could start talking before the text has visibly appeared.
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         try {
           const audioWorkflow = {
             id: 'vision-speech-' + Date.now(),

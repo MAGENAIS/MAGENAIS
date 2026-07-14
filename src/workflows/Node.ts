@@ -53,9 +53,17 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
       if (!caption) continue; // keep whatever placeholder/marker is already in values[task.key]
       const described = `[Image from a previous step, described: ${caption}]`;
       if (task.marker) {
+        // Embedded case — the surrounding string is user-authored (e.g. "Summarize
+        // this: ${step1}") and already supplies its own instruction, so substitute
+        // the caption as-is rather than layering another directive on top of it.
         values[task.key] = String(values[task.key]).replace(task.marker, described);
       } else {
-        values[task.key] = described;
+        // Whole-value case (auto-chained by WorkflowModal/AgentsMode, no
+        // user-authored instruction) — same fix as GraphUtils.adaptChainedValue:
+        // a bare caption with no framing reads to a text model as an unprompted
+        // statement, so it tends to just react to/describe it instead of
+        // producing new, on-topic content.
+        values[task.key] = GraphUtils.adaptChainedValue(node.type, described);
       }
     }
     return values;

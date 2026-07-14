@@ -74,11 +74,43 @@ export class TextMode extends Mode {
   }
 
   deactivate(): void {
-    // Cleanup any listeners
+    // Stop any in-progress read-aloud playback when leaving the tab, so it
+    // doesn't keep talking over whatever mode the user switches to next.
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
   }
 
   getTitle(): string {
     return 'Text / Voice Output';
+  }
+
+  /**
+   * Wires the "Read Aloud" button to the browser's built-in SpeechSynthesis
+   * API (same mechanism as BrowserSpeechAdapter's TTS fallback) so the
+   * generated text can be read back without needing a keyed speech provider.
+   * Toggles between "Read Aloud" and "Stop" while speaking.
+   */
+  private wireReadAloud(text: string): void {
+    const btn = document.getElementById('readAloudBtn') as HTMLButtonElement | null;
+    if (!btn) return;
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      btn.disabled = true;
+      btn.title = "This browser doesn't support speech synthesis.";
+      return;
+    }
+    btn.addEventListener('click', () => {
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        btn.textContent = '🔊 Read Aloud';
+        return;
+      }
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.onend = () => { btn.textContent = '🔊 Read Aloud'; };
+      utter.onerror = () => { btn.textContent = '🔊 Read Aloud'; };
+      window.speechSynthesis.speak(utter);
+      btn.textContent = '⏹ Stop Reading';
+    });
   }
 
   private async handleGenerate(): Promise<void> {
@@ -136,8 +168,12 @@ export class TextMode extends Mode {
       // Display result
       const output = result.finalOutput || 'No output';
       if (stage) {
-        stage.innerHTML = `<div class="result-text">${output}</div>`;
-        // Add copy/play buttons (similar to legacy)
+        stage.innerHTML = `
+          <div class="result-text">${output}</div>
+          <div class="result-actions">
+            <button class="ghost-btn" id="readAloudBtn">🔊 Read Aloud</button>
+          </div>`;
+        this.wireReadAloud(output);
       }
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'text', prompt, result: output, resultType: 'text',

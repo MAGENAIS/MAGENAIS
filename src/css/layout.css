@@ -23,11 +23,16 @@ header.topbar {
 }
 .topbar-banner{
   position:absolute;
-  top:0;
-  left:0;
+  inset: 0;
   z-index:0;
+  /* ROOT CAUSE of "header banner image cut off": this used a fixed 110px
+     height that matched header's min-height at rest, but header.topbar can
+     grow taller than that once its content wraps (long title, narrow
+     viewport, extra buttons) — the banner then stopped covering the header
+     partway down instead of extending with it. inset:0 + height:100% makes
+     it track the header's actual (possibly-grown) height responsively. */
   width: 100%;
-  height: 110px; /* fixed, independent of how tall the header grows when content wraps */
+  height: 100%;
   object-fit: cover;
   object-position: center;
   display: block;
@@ -145,7 +150,19 @@ section.control {
   flex-direction:column;
   gap:16px;
   overflow-y:auto;
+  overflow-x:hidden;
   min-height: 0;
+  /* ROOT CAUSE of "content panels show truncated/cut text or images": a
+     grid/flex item's default min-width is `auto` (shrink-to-fit its content's
+     min-content size), not 0 — so a single unbreakable run in generated
+     content (a long URL, hash, or base64 chunk) could force this panel wider
+     than its 380px grid track. The outer shell (#app/html/body) intentionally
+     owns scrolling via `overflow:hidden` and expects these panels to stay
+     within their track and scroll internally, so that blowout wasn't visible
+     as a scrollbar — it just pushed/clipped content off-screen instead of
+     wrapping or scrolling it into view. min-width:0 lets the panel actually
+     respect its track width so wrapping/scrolling can do their job. */
+  min-width: 0;
   background: var(--bg-panel);
 }
 @media (max-width: 880px){
@@ -159,7 +176,12 @@ section.output {
   flex-direction:column;
   gap:16px;
   overflow-y:auto;
+  overflow-x:hidden;
   min-height: 0;
+  /* See section.control comment above — same fix, same reason. This is the
+     panel most affected in practice since it's where generated text/images
+     land. */
+  min-width: 0;
 }
 .output-header {
   display:flex;
@@ -204,6 +226,7 @@ section.output {
   border:1px dashed var(--line-bright);
   border-radius: var(--radius);
   min-height: 280px;
+  min-width: 0; /* same overflow-blowout fix as section.control/.output above */
   padding: 30px;
   text-align:center;
   gap:14px;
@@ -244,11 +267,13 @@ footer.statusbar {
 }
 .statusbar-banner {
   position:absolute;
-  top:0;
-  left:0;
+  inset: 0;
   z-index:0;
+  /* Same fix as .topbar-banner above: track the footer's actual height
+     (it can grow past its 60px min-height when its content wraps) instead
+     of a fixed height that leaves the image cut off partway down. */
   width: 100%;
-  height: 60px;
+  height: 100%;
   object-fit: cover;
   object-position: center;
   opacity: 0.9;
@@ -323,6 +348,12 @@ details.adv .adv-body{ padding: 4px 12px 14px; display:flex; flex-direction:colu
   line-height:1.75;
   color: var(--ink);
   white-space: pre-wrap;
+  /* pre-wrap alone only breaks at existing whitespace — a single long
+     unbroken run (URL, hash, base64 chunk) still wouldn't wrap and would
+     force the panel wider than its track (see section.control/.output fix
+     above). overflow-wrap:anywhere lets it break mid-token as a last resort
+     instead of overflowing. */
+  overflow-wrap: anywhere;
   font-family: var(--sans);
   padding: 4px 2px;
   text-align:start;
@@ -334,8 +365,12 @@ details.adv .adv-body{ padding: 4px 12px 14px; display:flex; flex-direction:colu
   align-items:center;
   gap:12px;
   width:100%;
+  min-width:0;
 }
 .result-media img, .result-media video {
+  display:block;
+  width:auto;
+  height:auto;
   max-width:100%;
   max-height:60vh;
   border-radius: var(--radius);
@@ -474,6 +509,7 @@ table.data-preview th{ background:var(--bg-raised); color:var(--ink-dim); positi
   margin-bottom: 10px;
   text-align:start;
   unicode-bidi:plaintext;
+  overflow-wrap: anywhere;
 }
 
 /* Game frame */

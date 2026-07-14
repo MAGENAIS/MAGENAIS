@@ -82,7 +82,12 @@ async function generateWithRetry(
 
 function buildStructureAgentPrompt(opts: GameOptions): string {
   const engineNote = opts.engine === '3d'
-    ? `This will be a 3D game using Three.js. Include exactly this script tag in the <head>: <scr` + `ipt src="https://cdnjs.cloudflare.com/ajax/libs/three.js/128/three.min.js"></scr` + `ipt>`
+    // ROOT CAUSE of "3D games don't work at all": this URL was missing the
+    // 'r' prefix cdnjs actually uses for this release path (.../three.js/128/...
+    // 404s; the real path is .../three.js/r128/...). The script tag silently
+    // failed to load, so `THREE` was undefined and every line of the
+    // logic agent's Three.js code threw immediately on load.
+    ? `This will be a 3D game using Three.js. Include exactly this script tag in the <head>: <scr` + `ipt src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></scr` + `ipt>`
     : `This will be a 2D game using the HTML5 Canvas API — include a <canvas id="gameCanvas"></canvas> element.`;
   return `Write ONLY the HTML structure, CSS styling, and UI scaffolding (no game logic JS yet) for a simple browser game. ${engineNote}
 

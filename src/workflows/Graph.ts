@@ -172,6 +172,66 @@ export class GraphUtils {
     return typeof value === 'string' ? value : value.url;
   }
 
+  // Node types whose primary input is a literal generation prompt fed straight
+  // to a diffusion-style media provider (not an instruction-following chat
+  // turn) — a full, multi-paragraph previous-step output overwhelms/gets
+  // truncated unpredictably by these and tends to steer the result away from
+  // the topic rather than toward it.
+  private static readonly DIFFUSION_PROMPT_TYPES = new Set(['image', 'video', 'music']);
+  private static readonly MAX_DIFFUSION_PROMPT_CHARS = 500;
+
+  // Node types whose primary input is read by an instruction-following text
+  // model. A bare previous-step output with no instruction attached reads to
+  // these as an unprompted statement, so the model tends to respond by
+  // describing/commenting on that text ("processing" it) instead of producing
+  // new, on-topic content — which is the entire point of chaining steps.
+  // 'speech' (spoken verbatim) and 'research' (used as a literal search
+  // query) are deliberately excluded: wrapping those would corrupt the exact
+  // text/query they're meant to carry through unchanged.
+  private static readonly INSTRUCTION_TEXT_TYPES = new Set(['text', 'coding', 'gamegen']);
+
+  /**
+   * ROOT CAUSE (reported: workflow chaining, e.g. text -> image or
+   * image -> text, "gets confused" and ends up just re-processing/describing
+   * the previous step's raw content instead of producing new, on-topic
+   * content in its own modality): a chained step's entire input was set to
+   * the exact, unmodified value the previous node returned, with nothing
+   * telling the receiving model/provider what to actually do with it. Two
+   * distinct problems hid behind that one symptom:
+   *   1) Some node outputs aren't plain text (e.g. ResearchNodeExecutor
+   *      returns {papers, sourceStatus, summary}) — passed straight through,
+   *      that object stringifies to "[object Object]" wherever a downstream
+   *      provider embeds it in a request, which reads as complete nonsense.
+   *   2) Even for plain text, a diffusion-style image/video/music prompt
+   *      needs a short, on-topic prompt (not a multi-paragraph excerpt), and
+   *      an instruction-following text/coding/gamegen step needs to be told
+   *      to *build on* the prior text, not just react to seeing it appear
+   *      with no framing.
+   * Adapts a resolved reference value for the node type about to consume it.
+   */
+  static adaptChainedValue(nodeType: string, value: any): any {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      value = typeof value.summary === 'string' ? value.summary : GraphUtils.stringifyOutput(value);
+    }
+    if (typeof value !== 'string') return value;
+
+    if (GraphUtils.DIFFUSION_PROMPT_TYPES.has(nodeType)) {
+      const trimmed = value.trim();
+      if (trimmed.length > GraphUtils.MAX_DIFFUSION_PROMPT_CHARS) {
+        return trimmed.slice(0, GraphUtils.MAX_DIFFUSION_PROMPT_CHARS).replace(/\s+\S*$/, '') + '\u2026';
+      }
+      return trimmed;
+    }
+
+    if (GraphUtils.INSTRUCTION_TEXT_TYPES.has(nodeType)) {
+      return 'Using the following as context/reference material, produce new, well-developed, on-topic content ' +
+        "(expanding on it, summarizing it, or continuing it, as appropriate) \u2014 don't just restate or describe it " +
+        'verbatim:\n\n' + value;
+    }
+
+    return value;
+  }
+
   /**
    * A pending upgrade: `values[key]` currently holds either the sentinel
    * (whole-value case) or a string containing `marker` (embedded case) and
@@ -220,8 +280,12 @@ export class GraphUtils {
           resolved[key] = '[A previous step generated a media file here that could not be described — ' +
             'continuing based on the original request/context only.]';
           pending.push({ key, url: GraphUtils.mediaUrlOf(result) });
-        } else {
+        } else if (expectsMedia) {
+          // Vision/audio/video nodes need the raw media reference (or raw
+          // upstream value) untouched — leave it exactly as resolved.
           resolved[key] = result;
+        } else {
+          resolved[key] = GraphUtils.adaptChainedValue(node.type, result);
         }
       } else if (typeof value === 'string' && REF_RE.test(value)) {
         // One or more references EMBEDDED in a larger string (e.g. a
