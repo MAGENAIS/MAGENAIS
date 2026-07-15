@@ -69,6 +69,48 @@ export class OllamaAdapter extends BaseAdapter {
     return this.chat(provider, input, options);
   }
 
+  /**
+   * Returns `requestedModel` unchanged if it's already pulled, otherwise
+   * substitutes whatever model IS locally available (preferring one with
+   * "coder"/"code" in its name for coding requests), so a fresh Ollama
+   * install with e.g. only "mistral" pulled still works out of the box
+   * instead of demanding "llama3.2" specifically. Returns `requestedModel`
+   * unchanged (letting the normal /api/chat 404 handling in `chat()`
+   * explain things) if the tags list can't be read or is genuinely empty.
+   */
+  private async resolveInstalledModel(provider: ProviderConfig, requestedModel: string, isCoding: boolean): Promise<string> {
+    let installed: string[];
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
+      const res = await fetch(this.url(provider, '/api/tags'), { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!res.ok) return requestedModel;
+      const json = await res.json().catch(() => null);
+      installed = Array.isArray(json?.models) ? json.models.map((m: any) => m.name).filter(Boolean) : [];
+    } catch {
+      // Can't reach /api/tags for some reason — fall through to the
+      // original behaviour (attempt the requested model, let /api/chat's
+      // own error handling take it from here).
+      return requestedModel;
+    }
+
+    if (installed.length === 0) return requestedModel; // nothing pulled at all — let the normal "not pulled" error fire
+
+    // Exact match (accounting for Ollama's implicit ":latest" tag suffix).
+    const normalize = (n: string) => n.split(':')[0];
+    if (installed.some(n => n === requestedModel || normalize(n) === normalize(requestedModel))) {
+      return requestedModel;
+    }
+
+    // Requested model isn't pulled, but something else is — use that
+    // instead of failing. Prefer a code-oriented model for coding requests.
+    const substitute = isCoding
+      ? installed.find(n => /coder|code/i.test(n)) || installed[0]
+      : installed[0];
+    return substitute;
+  }
+
   private url(provider: ProviderConfig, path: string): string {
     const base = (provider.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
     return base + path;
@@ -79,12 +121,26 @@ export class OllamaAdapter extends BaseAdapter {
     // Sensible default: a small, fast, widely-available instruction model.
     // Coding requests get a code-specialized model when the user hasn't
     // overridden it, matching the requested default priority
-    // ("Qwen2.5-Coder or DeepSeek-Coder") — the user still needs to have
-    // pulled it (`ollama pull qwen2.5-coder`); if they haven't, Ollama
-    // returns a clear "model not found" error that the fallback chain
-    // treats like any other provider failure and moves past.
+    // ("Qwen2.5-Coder or DeepSeek-Coder").
     const isCoding = (options?.mode || provider.type) === 'coding';
-    const model = options?.model || provider.defaultModel || (isCoding ? 'qwen2.5-coder' : 'llama3.2');
+    const requestedModel = options?.model || provider.defaultModel || (isCoding ? 'qwen2.5-coder' : 'llama3.2');
+
+    // ROOT CAUSE FIX (user-reported: "Ollama is running but the 'llama3.2'
+    // model is not pulled yet, how can we fix this that user does not need
+    // to download or install llama model for default setting"): requiring
+    // one specific model name to be pulled defeats the point of Ollama
+    // being a true zero-setup default — plenty of users already have
+    // Ollama running with a *different* model pulled (mistral, phi3,
+    // qwen2.5, gemma2, whatever they set up previously). Since Ollama
+    // exposes the exact list of locally-installed models at GET
+    // /api/tags (already used by testConnection above), check that list
+    // first: if the requested model isn't there but something else is,
+    // silently use whichever model IS already installed instead of
+    // failing — no download required. Only surface the "not pulled" error
+    // when Ollama genuinely has zero models installed, since at that point
+    // there is nothing this adapter can do locally and the fallback chain
+    // needs to move on to WebLLM/cloud providers.
+    const model = await this.resolveInstalledModel(provider, requestedModel, isCoding);
 
     const body = {
       model,

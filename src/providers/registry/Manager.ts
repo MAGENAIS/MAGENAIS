@@ -120,6 +120,7 @@ export class ProviderManager {
       const STALE_MODEL_MIGRATIONS: Record<string, string> = {
         'Qwen/Qwen3-32B-Instruct': 'meta-llama/Llama-3.3-70B-Instruct', // Hugging Face — stopped resolving
         'llama-3.3-70b': 'llama-4-scout', // Cerebras — retired from their free-tier catalog
+        'black-forest-labs/FLUX.1-dev': 'stabilityai/stable-diffusion-xl-base-1.0', // Hugging Face hf-inference — now HTTP 410 "deprecated"
       };
       if (p.defaultModel && STALE_MODEL_MIGRATIONS[p.defaultModel] && trueDefault) {
         const oldModel = p.defaultModel;
@@ -166,6 +167,16 @@ export class ProviderManager {
         if (p.timeoutMs !== trueDefault.timeoutMs) patch.timeoutMs = trueDefault.timeoutMs;
         if (p.defaultModel === 'Llama-3.2-3B-Instruct-q4f16_1-MLC' && trueDefault.defaultModel !== p.defaultModel) {
           patch.defaultModel = trueDefault.defaultModel;
+        }
+        // ROOT CAUSE FIX (priority chain / requirement #1): builtin-webllm-text
+        // shipped at priority 8 (ahead of every keyed cloud provider) before
+        // this fix moved it to 35 (see defaultProviders.ts comment). An
+        // install that already seeded the old value would otherwise keep it
+        // forever under the normal "stored always wins" rule — only resync
+        // when it still exactly equals the old known-stale value, so a
+        // user's deliberate custom priority is left alone.
+        if (p.id === 'builtin-webllm-text' && p.priority === 8 && trueDefault.priority !== 8) {
+          patch.priority = trueDefault.priority;
         }
         if (Object.keys(patch).length > 0) {
           p = { ...p, ...patch };
@@ -302,6 +313,59 @@ export class ProviderManager {
    * other provider error, so the chain always keeps moving no matter what
    * an individual adapter does internally.
    */
+  private saveProvidersDebounceTimer: number | null = null;
+
+  /**
+   * ROOT CAUSE FIX (Requirement #1 — "how could we set providers pipeline
+   * priority chain autonomously... according to retrieval time,
+   * performance, to have the quickest and best results"): SmartRouter
+   * (../Router.ts) already scores candidates using `averageLatency` and
+   * `successRate` — but until now those two fields were ONLY ever updated
+   * by HealthMonitor's background `testConnection` ping (see ../Health.ts),
+   * which most adapters don't even implement meaningfully, and which never
+   * reflects how long a provider actually took to answer a *real* request.
+   * So the router's "performance" scoring was effectively inert, and the
+   * fallback chain always ran in static, hand-picked `priority` order —
+   * which is exactly why a slow-by-nature provider positioned early (e.g.
+   * WebLLM, which can take up to two minutes on a cold model download)
+   * could dominate the front of the chain ahead of much faster keyed
+   * providers, every single time, forever.
+   *
+   * This feeds the *real* latency/outcome of every fallback-chain attempt
+   * (success or failure, from callWithFallback/callVision above) into the
+   * exact same `registry.updateHealth` path HealthMonitor uses, so the
+   * router's scoring is now driven by this app's actual, observed
+   * performance instead of a mostly-static number. Over a session (and
+   * across reloads, since it's debounced into the normal provider-save
+   * path) a provider that keeps timing out or answering slowly organically
+   * sinks in the ranking, and a fast one rises — without touching Router's
+   * scoring formula, callWithFallback's control flow, or requiring any new
+   * UI. Kept intentionally lightweight: a plain try/catch around a
+   * best-effort update, since this must never be able to break or slow
+   * down the actual generation request it's instrumenting.
+   */
+  private recordLiveOutcome(providerId: string, success: boolean, latencyMs: number, errorMessage?: string): void {
+    try {
+      this.registry.updateHealth(providerId, {
+        status: success ? 'healthy' : 'unhealthy',
+        lastCheck: Date.now(),
+        responseTime: success ? latencyMs : undefined,
+        lastError: success ? undefined : errorMessage,
+      });
+    } catch (e) {
+      Logger.debug('recordLiveOutcome: failed to update health (non-fatal).', e);
+      return;
+    }
+    // Debounced persistence so repeated rapid calls (e.g. a workflow with
+    // many steps) don't hammer storage — a few seconds of staleness on
+    // these stats after a crash is harmless, unlike provider keys/settings.
+    if (this.saveProvidersDebounceTimer) clearTimeout(this.saveProvidersDebounceTimer);
+    this.saveProvidersDebounceTimer = window.setTimeout(() => {
+      this.saveProvidersDebounceTimer = null;
+      this.saveProviders().catch(e => Logger.debug('recordLiveOutcome: debounced save failed (non-fatal).', e));
+    }, 3000);
+  }
+
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: string): Promise<T> {
     const bounded = Math.max(1000, timeoutMs || 30000); // never allow an effectively-zero/undefined timeout to fire instantly
     return new Promise<T>((resolve, reject) => {
@@ -359,6 +423,7 @@ export class ProviderManager {
         continue;
       }
       log?.(`Trying ${provider.name}…`);
+      const attemptStart = performance.now();
       try {
         // The UI's "Preferred model" field offers provider-specific aliases
         // (e.g. Pollinations' own "openai"/"mistral"/"claude" routing names) —
@@ -381,6 +446,7 @@ export class ProviderManager {
         );
         log?.(`${provider.name} succeeded.`, 'info');
         attempts.push({ name: provider.name, status: 'ok' });
+        this.recordLiveOutcome(provider.id, true, performance.now() - attemptStart);
         // Surface the full checklist (winner + everyone skipped/failed
         // before it) as one summary log line, so a user who only glances
         // at the last log entry still sees the full picture, not just
@@ -393,6 +459,7 @@ export class ProviderManager {
         const message = err?.message || String(err);
         errors.push(`${provider.name}: ${message}`);
         attempts.push({ name: provider.name, status: 'error', detail: message });
+        this.recordLiveOutcome(provider.id, false, performance.now() - attemptStart, message);
         log?.(`${provider.name} failed — ${message}`, 'error');
       }
     }
@@ -473,6 +540,7 @@ export class ProviderManager {
         continue;
       }
       log?.(`Analyzing image with ${provider.name}…`);
+      const attemptStart = performance.now();
       try {
         const result = await this.withTimeout(
           adapter!.call!(
@@ -485,6 +553,7 @@ export class ProviderManager {
         );
         log?.(`${provider.name} succeeded.`, 'info');
         attempts.push({ name: provider.name, status: 'ok' });
+        this.recordLiveOutcome(provider.id, true, performance.now() - attemptStart);
         if (attempts.length > 1) {
           log?.(`Provider report:\n${formatProviderReport(attempts)}`, 'info');
         }
@@ -493,6 +562,7 @@ export class ProviderManager {
         const message = err?.message || String(err);
         errors.push(`${provider.name}: ${message}`);
         attempts.push({ name: provider.name, status: 'error', detail: message });
+        this.recordLiveOutcome(provider.id, false, performance.now() - attemptStart, message);
         log?.(`${provider.name} failed — ${message}`, 'error');
       }
     }

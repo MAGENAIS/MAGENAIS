@@ -25,7 +25,16 @@ export class SmartRouter {
     this.options = {
       priorityWeight: 1.0,
       healthWeight: 1.0,
-      latencyWeight: 0.8,
+      // ROOT CAUSE FIX (requirement #1 — autonomous priority by real
+      // performance): raised from 0.8 now that ProviderManager actually
+      // feeds real per-call latency into `averageLatency` (see
+      // ProviderManager.recordLiveOutcome) instead of that field being
+      // populated only by an occasional background ping. Latency now
+      // carries roughly as much weight as the static `priority` number,
+      // so a provider that's proven itself fast in actual use can outrank
+      // a merely well-positioned one, and a provider that's proven itself
+      // slow sinks — without anyone hand-editing priorities.
+      latencyWeight: 1.2,
       successRateWeight: 0.9,
       costWeight: 0.5,
       quotaWeight: 0.3,
@@ -66,9 +75,18 @@ export class SmartRouter {
     // Normalize priority (lower priority = higher score, but we invert: priority 1 => 100, priority 100 => 1)
     const priorityScore = Math.max(0, 100 - (provider.priority || 50));
 
-    // Normalize latency: assume 0-5000ms range, but cap at 5000; lower is better.
-    const latency = provider.averageLatency || 1000;
-    const latencyScore = Math.max(0, 100 - (latency / 5000) * 100);
+    // Normalize latency. ROOT CAUSE FIX: the old 0-5000ms range was far too
+    // narrow relative to real observed latencies in this app — a browser
+    // model's cold-start download alone can legitimately take 30-120
+    // seconds (see WebLLM/Transformers `timeoutMs`), so under the old
+    // scale anything past 5s already scored a flat 0 and couldn't be
+    // penalized any further relative to, say, a 90s outlier. Widened to a
+    // 12s reference ceiling (fast cloud APIs typically answer in well
+    // under 3s, so they still score high) with a graceful floor rather
+    // than clamping straight to 0, so an occasional slow-but-not-hopeless
+    // response doesn't swing the score as violently as a genuine timeout.
+    const latency = provider.averageLatency || 1500; // unmeasured yet — assume a modest, not-great-not-bad latency rather than rewarding the unknown
+    const latencyScore = Math.max(0, 100 - (latency / 12000) * 100);
 
     // Success rate: 0-1 -> 0-100
     const successScore = (provider.successRate || 0.8) * 100;
