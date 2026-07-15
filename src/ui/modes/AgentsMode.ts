@@ -272,7 +272,7 @@ export class AgentsMode extends Mode {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, {});
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, {}, (msg, level) => this.appendLog(msg, level));
       // Display results
       let html = '';
       result.nodeResults.forEach((nr, idx) => {

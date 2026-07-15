@@ -40,7 +40,7 @@ export class VideoMode extends Mode {
         </div>
       </details>
       <div id="vidKeyWarning"></div>
-      <p class="hint">Pipeline: Custom endpoint → gen.pollinations.ai/video → Hugging Face → animated still fallback</p>
+      <p class="hint">Pipeline: Custom endpoint (if set) → your API keys (optional) → Pan/Zoom Still Fallback (free, no key)</p>
       <button class="run-btn" id="runBtn">▸ Generate Video</button>
     `);
 
@@ -102,7 +102,7 @@ export class VideoMode extends Mode {
     if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Generating video (may take 30–90s)...</div>';
 
     try {
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt });
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt }, (msg, level) => this.appendLog(msg, level));
       const output = result.finalOutput;
       const url: string = (output && typeof output === 'object' ? output.url : output) as string;
       const isFallback = result.nodeResults.some(n => n.nodeId === 'vid1' && n.output?.isFallback);

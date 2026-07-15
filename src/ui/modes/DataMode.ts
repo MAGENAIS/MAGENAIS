@@ -132,7 +132,7 @@ export class DataMode extends Mode {
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.parsedData, prompt });
+        const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.parsedData, prompt }, (msg, level) => this.appendLog(msg, level));
         aiText = result.finalOutput;
         this.kernel.getStore().getActions().addHistoryEntry({
           mode: 'data', prompt, result: aiText, resultType: 'text',

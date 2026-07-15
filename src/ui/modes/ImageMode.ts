@@ -54,7 +54,7 @@ export class ImageMode extends Mode {
           </div>
         </div>
       </details>
-      <p class="hint">Pipeline: image.pollinations.ai → gen.pollinations.ai → Hugging Face</p>
+      <p class="hint">Pipeline: Pollinations (free, no key) → your API keys (optional, tried last)</p>
       <button class="run-btn" id="runBtn">▸ Generate Image</button>
     `);
 
@@ -106,7 +106,7 @@ export class ImageMode extends Mode {
     if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Generating image...</div>';
 
     try {
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt: finalPrompt });
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt: finalPrompt }, (msg, level) => this.appendLog(msg, level));
       const url = result.finalOutput;
       if (stage) {
         stage.innerHTML = `

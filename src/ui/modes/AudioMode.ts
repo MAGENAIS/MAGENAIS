@@ -91,7 +91,7 @@ export class AudioMode extends Mode {
         </select>
       </div>
       <div id="audioKeyWarning"></div>
-      <p class="hint" id="audioPipelineHint">Pipeline: gen.pollinations.ai TTS → browser speech fallback</p>
+      <p class="hint" id="audioPipelineHint">Pipeline: Browser Speech Synthesis (free) → Puter.js (free) → your API keys (optional, tried last)</p>
       <button class="run-btn" id="runBtn">▸ Generate Audio</button>
     `);
 
@@ -143,10 +143,10 @@ export class AudioMode extends Mode {
     const hint = document.getElementById('audioPipelineHint');
     if (hint) {
       hint.innerHTML = isMusic
-        ? 'Pipeline: gen.pollinations.ai ElevenMusic → Hugging Face MusicGen'
+        ? 'Pipeline: Transformers.js MusicGen (browser, free) → your API keys (optional, tried last)'
         : isPodcast
         ? 'Pipeline: script generation → TTS per line → stitched WAV'
-        : 'Pipeline: gen.pollinations.ai TTS → browser speech fallback';
+        : 'Pipeline: Browser Speech Synthesis (free) → Puter.js (free) → your API keys (optional, tried last)';
     }
     // Also update podcast sub-fields when switching to podcast
     if (isPodcast) this.updatePodcastSubFields();
@@ -215,7 +215,7 @@ export class AudioMode extends Mode {
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        const result = await this.kernel.getWorkflowEngine().execute(workflow, { text: prompt });
+        const result = await this.kernel.getWorkflowEngine().execute(workflow, { text: prompt }, (msg, level) => this.appendLog(msg, level));
         const url = result.finalOutput;
         if (stage) {
           if (url === '__BROWSER_TTS_PENDING__') {
@@ -261,7 +261,7 @@ export class AudioMode extends Mode {
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt });
+        const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt }, (msg, level) => this.appendLog(msg, level));
         const url = result.finalOutput;
         if (stage) {
           stage.innerHTML = this.renderAudioBlock(url, { filename: 'magen-music', downloadLabel: 'Download Audio' });

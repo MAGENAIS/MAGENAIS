@@ -149,7 +149,7 @@ export class VisionMode extends Mode {
     };
 
     try {
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, { imageBase64, prompt });
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, { imageBase64, prompt }, (msg, level) => this.appendLog(msg, level));
       const description = result.finalOutput || 'No description returned.';
       if (stage) {
         stage.innerHTML = `

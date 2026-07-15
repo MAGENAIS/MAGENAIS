@@ -5,6 +5,7 @@ import { Persistence } from '../../core/state/Persistence';
 import { EventBus } from '../../core/EventBus';
 import { Logger } from '../../core/Logger';
 import { ProviderValidator } from '../../config/ProviderValidator';
+import { ProviderAttempt, formatProviderReport, formatAllFailedMessage } from '../ProviderReport';
 
 export class ProviderManager {
   private registry: ProviderRegistry;
@@ -335,6 +336,11 @@ export class ProviderManager {
     }
 
     const errors: string[] = [];
+    // ProviderReport (see ../ProviderReport.ts): mirrors `errors` above but
+    // keeps enough structure (name + status) to render the ✓ / ⚠ checklist
+    // the app's Provider Report requirement calls for, without changing
+    // this method's return type or any caller.
+    const attempts: ProviderAttempt[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
       // Priority 4: validate endpoint, model/adapter, auth/API key, and
@@ -346,6 +352,7 @@ export class ProviderManager {
         const reason = validation.errors.join(' ');
         log?.(`${provider.name}: skipped — ${reason}`, 'warn');
         errors.push(`${provider.name}: ${reason}`);
+        attempts.push({ name: provider.name, status: 'skipped', detail: reason });
         continue;
       }
       log?.(`Trying ${provider.name}…`);
@@ -370,17 +377,24 @@ export class ProviderManager {
           provider.name
         );
         log?.(`${provider.name} succeeded.`, 'info');
+        attempts.push({ name: provider.name, status: 'ok' });
+        // Surface the full checklist (winner + everyone skipped/failed
+        // before it) as one summary log line, so a user who only glances
+        // at the last log entry still sees the full picture, not just
+        // "succeeded" with no context on what else was tried.
+        if (attempts.length > 1) {
+          log?.(`Provider report:\n${formatProviderReport(attempts)}`, 'info');
+        }
         return result;
       } catch (err: any) {
         const message = err?.message || String(err);
         errors.push(`${provider.name}: ${message}`);
+        attempts.push({ name: provider.name, status: 'error', detail: message });
         log?.(`${provider.name} failed — ${message}`, 'error');
       }
     }
 
-    throw new Error(
-      `All ${candidates.length} provider(s) for '${type}' failed:\n` + errors.join('\n')
-    );
+    throw new Error(formatAllFailedMessage(type, attempts));
   }
 
   /**
@@ -444,6 +458,7 @@ export class ProviderManager {
     }
 
     const errors: string[] = [];
+    const attempts: ProviderAttempt[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
       const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
@@ -451,6 +466,7 @@ export class ProviderManager {
         const reason = validation.errors.join(' ');
         log?.(`${provider.name}: skipped — ${reason}`, 'warn');
         errors.push(`${provider.name}: ${reason}`);
+        attempts.push({ name: provider.name, status: 'skipped', detail: reason });
         continue;
       }
       log?.(`Analyzing image with ${provider.name}…`);
@@ -465,14 +481,19 @@ export class ProviderManager {
           provider.name
         );
         log?.(`${provider.name} succeeded.`, 'info');
+        attempts.push({ name: provider.name, status: 'ok' });
+        if (attempts.length > 1) {
+          log?.(`Provider report:\n${formatProviderReport(attempts)}`, 'info');
+        }
         return result;
       } catch (err: any) {
         const message = err?.message || String(err);
         errors.push(`${provider.name}: ${message}`);
+        attempts.push({ name: provider.name, status: 'error', detail: message });
         log?.(`${provider.name} failed — ${message}`, 'error');
       }
     }
-    throw new Error(`All vision provider(s) failed:\n` + errors.join('\n'));
+    throw new Error(formatAllFailedMessage('vision', attempts));
   }
 
   // Delegate some methods to registry for convenience

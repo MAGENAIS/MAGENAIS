@@ -77,7 +77,7 @@ export class ResearchMode extends Mode {
     };
 
     try {
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, { query });
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, { query }, (msg, level) => this.appendLog(msg, level));
       this.renderResult(result.finalOutput);
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'research', prompt: query, result: result.finalOutput?.summary, resultType: 'text',

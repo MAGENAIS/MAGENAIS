@@ -82,7 +82,7 @@ export class CodingMode extends Mode {
     };
 
     try {
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt: request });
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt: request }, (msg, level) => this.appendLog(msg, level));
       const output = result.finalOutput || 'No output';
       if (stage) {
         stage.innerHTML = `<div class="result-text">${renderMarkdownCode(output)}</div>`;

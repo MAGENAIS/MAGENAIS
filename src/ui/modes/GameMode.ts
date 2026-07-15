@@ -82,7 +82,7 @@ export class GameMode extends Mode {
     };
 
     try {
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, { concept });
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, { concept }, (msg, level) => this.appendLog(msg, level));
       const html: string = result.finalOutput;
       this.lastGameCode = html;
       this.renderGame(html);

@@ -42,7 +42,7 @@ export class TextMode extends Mode {
           </div>
         </div>
       </details>
-      <p class="hint">Pipeline: text.pollinations.ai → Hugging Face → gen.pollinations.ai</p>
+      <p class="hint">Pipeline: Ollama (local, if installed) → WebLLM (browser) → Puter.js (free) → your API keys (optional, tried last)</p>
       <button class="run-btn" id="runBtn">▸ Generate</button>
     `);
 
@@ -137,7 +137,7 @@ export class TextMode extends Mode {
         updatedAt: Date.now(),
       };
       // Execute workflow
-      const result = await workflowEngine.execute(workflow, { prompt });
+      const result = await workflowEngine.execute(workflow, { prompt }, (msg, level) => this.appendLog(msg, level));
       // Display result
       const output = result.finalOutput || 'No output';
       if (stage) {

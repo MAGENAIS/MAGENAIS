@@ -22,6 +22,31 @@ export class PuterAdapter extends BaseAdapter {
   browserSafe = true;
   supportsModelDiscovery = false;
 
+  /**
+   * ROOT CAUSE (Puter reported as "failed to load from CDN" even when the
+   * network was fine): index.html loads https://js.puter.com/v2/ with
+   * `<script defer>`, which only guarantees the script runs before
+   * DOMContentLoaded — it does NOT guarantee it has finished by the time a
+   * user clicks Generate a moment after the page paints, especially on a
+   * slow connection or a cold cache. The old code checked `window.puter`
+   * exactly once and threw immediately if it wasn't there yet, permanently
+   * failing this provider for that request even though the script was
+   * simply still in flight. This polls briefly (a real CDN script tag
+   * resolves in well under a second once network access exists at all)
+   * before giving up, so a merely-still-loading script no longer looks
+   * identical to a genuinely blocked/unreachable one.
+   */
+  private async waitForPuter(timeoutMs = 6000): Promise<void> {
+    if (typeof window === 'undefined') throw new Error('Puter.js failed to load from CDN');
+    if (window.puter?.ai) return;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await new Promise(r => setTimeout(r, 150));
+      if (window.puter?.ai) return;
+    }
+    throw new Error('Puter.js failed to load from CDN');
+  }
+
   async call(provider: ProviderConfig, input: any, options?: any): Promise<string> {
     const mode = options?.mode || provider.type;
     if (mode === 'speech') return this.speech(input, options);
@@ -30,7 +55,8 @@ export class PuterAdapter extends BaseAdapter {
   }
 
   private async text(input: any, options?: any): Promise<string> {
-    if (typeof window === 'undefined' || !window.puter?.ai?.chat) {
+    await this.waitForPuter();
+    if (!window.puter?.ai?.chat) {
       throw new Error('Puter.js failed to load from CDN');
     }
     const prompt = input?.prompt ?? input;
@@ -60,7 +86,8 @@ export class PuterAdapter extends BaseAdapter {
    * paid provider configured.
    */
   private async vision(input: any, options?: any): Promise<string> {
-    if (typeof window === 'undefined' || !window.puter?.ai?.chat) {
+    await this.waitForPuter();
+    if (!window.puter?.ai?.chat) {
       throw new Error('Puter.js failed to load from CDN');
     }
     const prompt = input?.prompt || 'Describe what you see in this image in detail.';
@@ -83,7 +110,8 @@ export class PuterAdapter extends BaseAdapter {
   }
 
   private async speech(input: any, options?: any): Promise<string> {
-    if (typeof window === 'undefined' || !window.puter?.ai?.txt2speech) {
+    await this.waitForPuter();
+    if (!window.puter?.ai?.txt2speech) {
       throw new Error('Puter.js failed to load from CDN');
     }
     const text = (input?.prompt ?? input ?? '').slice(0, 2900);

@@ -43,14 +43,32 @@ export class WorkflowEngine {
 
   /**
    * Execute a workflow graph with the given inputs.
+   *
+   * ROOT CAUSE (user-reported: "where can I see the provider report — which
+   * one succeeded, which were skipped?"): `context.log` only ever wrote to
+   * the browser DevTools console via `Logger[level]` — every "Trying X…",
+   * "X succeeded.", and the Provider Report checklist (see
+   * ../providers/ProviderReport.ts) were invisible in the actual app UI;
+   * only a final failure ever reached the on-page log panel, via each
+   * Mode's separate renderError() call, and never on success at all. The
+   * optional `onLog` parameter lets a Mode forward the exact same live
+   * log stream into its own `#logPanel` (see Mode.ts's appendLog) without
+   * changing context.log's signature or any node executor.
    */
-  async execute(workflow: Workflow, inputs: Record<string, any>): Promise<WorkflowResult> {
+  async execute(
+    workflow: Workflow,
+    inputs: Record<string, any>,
+    onLog?: (msg: string, level?: 'info' | 'warn' | 'error') => void
+  ): Promise<WorkflowResult> {
     const startTime = Date.now();
     const context: ExecutionContext = {
       inputs,
       variables: new Map(), // we'll store outputs by node id
       cache: this.cache,
-      log: (msg, level = 'info') => Logger[level](`[Workflow ${workflow.id}] ${msg}`),
+      log: (msg, level = 'info') => {
+        Logger[level](`[Workflow ${workflow.id}] ${msg}`);
+        onLog?.(msg, level);
+      },
       services: this.providerManager && this.router
         ? { providerManager: this.providerManager, router: this.router }
         : undefined,

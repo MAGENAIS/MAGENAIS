@@ -97,7 +97,7 @@ export class DocMode extends Mode {
     };
 
     try {
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.uploadedFile });
+      const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.uploadedFile }, (msg, level) => this.appendLog(msg, level));
       const payload = result.finalOutput;
       this.renderResult(payload, action === 'qa' ? question : undefined);
       this.kernel.getStore().getActions().addHistoryEntry({
