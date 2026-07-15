@@ -34,7 +34,7 @@ export function summarizeReason(raw: string): string {
   if (s.includes('api key is required') || s.includes('an api key is required') || s.includes('missing') && s.includes('key')) {
     return 'Missing API Key';
   }
-  if (s.includes('credit') || s.includes('quota') || s.includes('insufficient') || s.includes('exhausted') || s.includes('billing')) {
+  if (s.includes('credit') || s.includes('quota') || s.includes('insufficient') || s.includes('exhausted') || s.includes('billing') || s.includes('no usage left') || s.includes('upgrade now')) {
     return 'Credits exhausted';
   }
   if (s.includes('429') || s.includes('rate') && s.includes('limit')) {
@@ -48,6 +48,9 @@ export function summarizeReason(raw: string): string {
   }
   if (s.includes('failed to load from cdn') || s.includes('cdn')) {
     return 'Not loaded';
+  }
+  if (s.includes("isn't pulled") || s.includes('model not found') || s.includes("model '") && s.includes('not found')) {
+    return 'Model not installed';
   }
   if (s.includes('econnrefused') || s.includes('failed to fetch') || s.includes('not installed') || s.includes('network')) {
     return 'Not installed / unreachable';

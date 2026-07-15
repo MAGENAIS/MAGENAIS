@@ -106,6 +106,15 @@ export class OllamaAdapter extends BaseAdapter {
     );
     if (!response.ok) {
       const text = await response.text();
+      // ROOT CAUSE (user-reported: confusing raw JSON like {"error":"model
+      // 'llama3.2' not found"} in the fallback-chain report): Ollama being
+      // installed and running is not the same as having the specific model
+      // this request wants — that's a one-command fix ("ollama pull
+      // <model>"), not a real provider failure, so surface it as such
+      // instead of a bare HTTP status + JSON blob.
+      if (response.status === 404 && /not found/i.test(text)) {
+        throw new Error(`Ollama is running, but the "${model}" model isn't pulled yet — run "ollama pull ${model}" (or set a different Preferred model you already have) in Keys & Providers.`);
+      }
       throw new Error(`Ollama HTTP ${response.status}: ${text.slice(0, 200)}`);
     }
     const json = await response.json();

@@ -83,8 +83,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: true,
     isPreset: true,
     isBuiltIn: true,
-    notes: 'Requirement #4 browser/local model default, the step reached when no local Ollama server is detected. Runs a real LLM entirely inside this browser tab via WebGPU, no server, no key, no signup. Deliberately uses a small ~1B-parameter model (not a larger one) so first-time load has a real chance of finishing inside the timeout below on typical hardware; the model downloads once (roughly 700MB-1GB) and is cached by the browser afterward. If WebGPU is not available, or the model cannot finish loading within timeoutMs, this entry fails cleanly (see ProviderManager.withTimeout) and the chain moves on to Puter / any keyed provider — it can never block the rest of the app.',
-    timeoutMs: 25000,
+    notes: 'Requirement #4 browser/local model default, the step reached when no local Ollama server is detected. Runs a real LLM entirely inside this browser tab via WebGPU, no server, no key, no signup. Deliberately uses a small ~1B-parameter model (not a larger one) so first-time load has a real chance of finishing inside the timeout below on typical hardware; the model downloads once (roughly 700MB-1GB) and is cached by the browser afterward. If WebGPU is not available, or the model cannot finish loading within timeoutMs, this entry fails cleanly (see ProviderManager.withTimeout) and the chain moves on to Puter / any keyed provider — it can never block the rest of the app. ROOT CAUSE FIX: this was previously 25000ms, which real-world reports showed was consistently too short to finish a genuine first-time ~700MB-1GB download+init on typical home connections — WebLLM timed out on every single request and therefore never got the chance to finish caching the model even once. Raised to 120000ms (2 minutes) so a normal-speed connection has a realistic shot at completing the ONE-TIME download; every request after that reuses the already-initialized in-memory engine and returns almost immediately, so this longer ceiling is only ever actually spent once per browser session.',
+    timeoutMs: 120000,
     retries: 0,
   },
   {
@@ -108,8 +108,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     isPreset: true,
     isBuiltIn: true,
     visionOnly: true, // captioning-only pipeline — cannot answer a genuine text-generation request; see types.ts
-    notes: 'Requirement default for VISION: local, in-browser image captioning via Transformers.js/ONNX Runtime Web, works with zero keys and no camera data ever leaving the device. It captions the image but (unlike a full multimodal chat model) cannot answer arbitrary open-ended questions about it, the adapter notes this plainly in its output and suggests enabling a multimodal provider (Anthropic/Gemini) for that. Priority 40 keeps it below Puters free-but-usage-risky vision path (also zero-key) and below any multimodal provider you have keyed, but well above every disabled-by-default keyed vision option, guaranteeing Vision always produces some real result out of the box.',
-    timeoutMs: 20000,
+    notes: 'Requirement default for VISION: local, in-browser image captioning via Transformers.js/ONNX Runtime Web, works with zero keys and no camera data ever leaving the device. It captions the image but (unlike a full multimodal chat model) cannot answer arbitrary open-ended questions about it, the adapter notes this plainly in its output and suggests enabling a multimodal provider (Anthropic/Gemini) for that. Priority 40 keeps it below Puters free-but-usage-risky vision path (also zero-key) and below any multimodal provider you have keyed, but well above every disabled-by-default keyed vision option, guaranteeing Vision always produces some real result out of the box. ROOT CAUSE FIX: raised from 20000ms — real-world reports showed the first-time model download consistently missed that window and timed out on every request, same issue as WebLLM above; 60000ms gives the one-time download a realistic chance to finish before it\'s cached for the rest of the session.',
+    timeoutMs: 60000,
     retries: 0,
   },
   {

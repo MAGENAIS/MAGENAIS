@@ -147,17 +147,20 @@ export class ProviderManager {
       }
       // One-time migration: keep the zero-key, in-browser model adapters
       // (WebLLM, Transformers.js) in sync on their internal reliability
-      // tuning values. These shipped with much longer timeouts and (for
-      // WebLLM) a heavier default model in an earlier version, before a
-      // responsiveness fix reduced them — but an install that already
-      // seeded these built-ins keeps the old, stale numbers forever under
-      // the normal "stored always wins" rule, silently reintroducing the
-      // exact multi-minute hangs that fix addressed. `timeoutMs` has no
-      // settings-UI field a user could have intentionally changed, so it's
-      // always safe to resync for these two specific, always-free
-      // adapters; `defaultModel` is only swapped when it still exactly
-      // equals the old known-stale value, so a genuinely user-picked
-      // "Preferred model" is left untouched.
+      // tuning values, whichever direction those defaults move in a given
+      // app version — this field has no settings-UI a user could have
+      // intentionally changed, so it's always safe to resync for these two
+      // specific, always-free adapters. Concretely: an earlier version
+      // shipped a longer timeout + heavier model that caused multi-minute
+      // hangs and was tightened down; then real-world reports showed the
+      // tightened value (25000/20000ms) was too short to ever let the
+      // one-time ~700MB-1GB model download finish at all, so it was raised
+      // again (see defaultProviders.ts). Without this sync, an install that
+      // already seeded these built-ins before either change would keep
+      // whatever stale number it first saw forever, under the normal
+      // "stored always wins" rule. `defaultModel` is only swapped when it
+      // still exactly equals the old known-stale value, so a genuinely
+      // user-picked "Preferred model" is left untouched.
       if (trueDefault && p.isBuiltIn && p.noKeyNeeded && (p.adapterId === 'webllm' || p.adapterId === 'transformers')) {
         const patch: Partial<ProviderConfig> = {};
         if (p.timeoutMs !== trueDefault.timeoutMs) patch.timeoutMs = trueDefault.timeoutMs;
@@ -166,7 +169,7 @@ export class ProviderManager {
         }
         if (Object.keys(patch).length > 0) {
           p = { ...p, ...patch };
-          Logger.info(`ProviderManager: refreshed "${p.name}"'s tuning defaults (timeout/model) to the latest, faster-failing values.`);
+          Logger.info(`ProviderManager: refreshed "${p.name}"'s tuning defaults (timeout/model) to the latest known-good values.`);
         }
       }
       if (existing) {

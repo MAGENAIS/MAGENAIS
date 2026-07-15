@@ -26,7 +26,11 @@ export class WikipediaAdapter extends BaseAdapter {
   }
 
   async call(provider: ProviderConfig, input: any, options?: any): Promise<string> {
-    const query = (input?.prompt ?? input) as string;
+    // Prefer a concise `query` field when the caller supplies one
+    // alongside a longer `prompt` (see ResearchNodeExecutor in
+    // ../../workflows/Node.ts) — Wikipedia's search API wants an actual
+    // topic, not a multi-paragraph LLM synthesis prompt.
+    const query = (input?.query ?? input?.prompt ?? input) as string;
     if (!query) throw new Error('Wikipedia lookup requires a query.');
 
     const base = (provider.baseUrl || 'https://en.wikipedia.org').replace(/\/$/, '');

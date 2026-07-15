@@ -211,7 +211,19 @@ export class ResearchNodeExecutor extends BaseNodeExecutor {
       .join('\n\n');
     const synthesisPrompt = `Based on these real papers, answer: "${query}"\n\n${papersForAI}\n\nSynthesize a clear answer citing papers by [number].`;
 
-    const summary = await this.callProvider(node, { prompt: synthesisPrompt }, context);
+    // ROOT CAUSE (user-reported: Wikipedia fallback fails with "No Wikipedia
+    // article found for <the entire multi-paragraph synthesis prompt>"):
+    // callProvider forwards the SAME input to every candidate in the
+    // 'research' fallback chain. Real LLM-based providers (Ollama, Puter,
+    // any keyed provider) want the full `synthesisPrompt` (the papers +
+    // instructions) as `prompt` — but WikipediaAdapter is not an LLM at
+    // all, it does a literal Wikipedia search on whatever string it's
+    // given, so handing it the whole synthesis prompt (with citations,
+    // abstracts, and instructions baked in) guarantees a failed search.
+    // Passing the original short `query` too lets WikipediaAdapter prefer
+    // it over `prompt` (see WikipediaAdapter.call) without needing a
+    // separate provider type or call path for this one adapter.
+    const summary = await this.callProvider(node, { prompt: synthesisPrompt, query }, context);
     return { papers: sources.papers, sourceStatus: sources.sourceStatus, summary };
   }
 }
