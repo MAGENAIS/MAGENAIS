@@ -87,28 +87,87 @@ export abstract class Mode {
    * Appends a status/error line to the log panel below the stage. Modes use
    * this for pipeline success/failure/warning text so it always lands after
    * the generated content rather than before it.
+   *
+   * ROOT CAUSE (user-reported: "pipeline messages are over/under the
+   * content, mixed in with it, and block clicking Read Aloud"): once every
+   * per-provider attempt (see ProviderManager) and every intermediate step
+   * (e.g. "Extracting page N of 35…") started reaching this panel live,
+   * a single run could produce 50-100+ lines — often taller than the
+   * actual result. Even though `#logPanel` was already positioned after
+   * `.stage` in the DOM/flow (never literally overlapping it), a wall of
+   * monospaced status text that long, sitting directly under a result with
+   * no strong visual boundary, reads as part of the same block rather than
+   * a separate report — especially right after a `<pre><code>` block using
+   * similar styling. Two changes fix this without touching layout
+   * architecture: (1) the whole thing now lives inside a <details> box
+   * with its own header/border (see .log-details in components.css),
+   * closed by default so it takes ~0 space unless the person opens it —
+   * only auto-opening on a warning/error, when they actually need to see
+   * why; (2) immediately-repeated identical lines (e.g. the same provider
+   * failing twice across two retry passes) collapse into one line with a
+   * "×N" counter instead of duplicating the whole wall of text.
    */
   protected appendLog(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
     const log = this.outputPanel.querySelector('#logPanel') as HTMLElement | null;
     if (!log) return;
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const line = document.createElement('div');
-    line.className = `log-line ${level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'ok'}`;
-    const t = document.createElement('span');
-    t.className = 't';
-    t.textContent = time;
-    const msg = document.createElement('span');
-    msg.className = 'msg';
-    msg.textContent = (level === 'error' ? '⚠ Error: ' : level === 'warn' ? '⚠ ' : '') + message;
-    line.appendChild(t);
-    line.appendChild(msg);
-    log.appendChild(line);
+
+    const lastLine = log.lastElementChild as HTMLElement | null;
+    if (lastLine && lastLine.dataset.rawMessage === message && lastLine.dataset.level === level) {
+      // Same line repeated back-to-back (e.g. a full second fallback-chain
+      // pass on retry) — bump a counter instead of appending a duplicate.
+      const count = parseInt(lastLine.dataset.count || '1', 10) + 1;
+      lastLine.dataset.count = String(count);
+      const countBadge = lastLine.querySelector('.count') as HTMLElement | null;
+      if (countBadge) {
+        countBadge.textContent = ` (×${count})`;
+      } else {
+        const badge = document.createElement('span');
+        badge.className = 'count';
+        badge.textContent = ` (×${count})`;
+        lastLine.querySelector('.msg')?.appendChild(badge);
+      }
+      const t = lastLine.querySelector('.t');
+      if (t) t.textContent = time;
+    } else {
+      const line = document.createElement('div');
+      line.className = `log-line ${level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'ok'}`;
+      line.dataset.rawMessage = message;
+      line.dataset.level = level;
+      line.dataset.count = '1';
+      const t = document.createElement('span');
+      t.className = 't';
+      t.textContent = time;
+      const msg = document.createElement('span');
+      msg.className = 'msg';
+      msg.textContent = (level === 'error' ? '⚠ Error: ' : level === 'warn' ? '⚠ ' : '') + message;
+      line.appendChild(t);
+      line.appendChild(msg);
+      log.appendChild(line);
+    }
+
+    const total = log.children.length;
+    const details = this.outputPanel.querySelector('#logDetails') as HTMLDetailsElement | null;
+    const summary = this.outputPanel.querySelector('#logSummary') as HTMLElement | null;
+    if (summary) {
+      summary.textContent = `Pipeline report (${total} event${total === 1 ? '' : 's'})`;
+    }
+    // Only pop the box open on its own for something the person actually
+    // needs to act on — a smooth run should stay collapsed even though
+    // it's still logging every step underneath.
+    if (details && (level === 'error' || level === 'warn')) {
+      details.open = true;
+    }
   }
 
   /** Clears the log panel — call at the start of a new generation. */
   protected clearLog(): void {
     const log = this.outputPanel.querySelector('#logPanel') as HTMLElement | null;
     if (log) log.innerHTML = '';
+    const details = this.outputPanel.querySelector('#logDetails') as HTMLDetailsElement | null;
+    if (details) details.open = false;
+    const summary = this.outputPanel.querySelector('#logSummary') as HTMLElement | null;
+    if (summary) summary.textContent = 'Pipeline report';
   }
 
   /**

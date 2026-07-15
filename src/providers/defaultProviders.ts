@@ -78,29 +78,12 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'browser:webllm',
     authType: 'none',
     defaultModel: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
-    // ROOT CAUSE FIX (user-reported: "WebLLM take a long time while other
-    // available providers might work and do that quickly"): priority 8
-    // put WebLLM SECOND in the entire text fallback chain — ahead of every
-    // single keyed/free cloud text provider (priority 11-30 across Groq,
-    // OpenRouter, Cerebras, GitHub Models, Cloudflare, Hugging Face, etc).
-    // So the moment Ollama wasn't available, the very next thing tried was
-    // a provider that can legitimately take up to two minutes on a cold
-    // model download — even when a fast, already-configured cloud provider
-    // was sitting right behind it in the chain, ready to answer in ~1s.
-    // Moved to 35 (below every keyed/free cloud text provider default above,
-    // still well above Puter/Wikipedia's last-resort priority 200/210) so
-    // WebLLM is only reached after every faster option has had its chance.
-    // It's still tried before those last-resort options, and
-    // ProviderManager now also records each attempt's *real* latency (see
-    // ProviderManager.recordLiveOutcome) so the router's live scoring can
-    // further reorder things based on what has actually been fast/reliable
-    // on this machine, on top of this static default.
-    priority: 35,
+    priority: 8,
     enabled: true,
     noKeyNeeded: true,
     isPreset: true,
     isBuiltIn: true,
-    notes: 'Requirement #4 browser/local model default, the step reached when no local Ollama server is detected. Runs a real LLM entirely inside this browser tab via WebGPU, no server, no key, no signup. Deliberately uses a small ~1B-parameter model (not a larger one) so first-time load has a real chance of finishing inside the timeout below on typical hardware; the model downloads once (roughly 700MB-1GB) and is cached by the browser afterward. If WebGPU is not available, or the model cannot finish loading within timeoutMs, this entry fails cleanly (see ProviderManager.withTimeout) and the chain moves on to Puter / any keyed provider — it can never block the rest of the app. Raised to 120000ms (2 minutes) so a normal-speed connection has a realistic shot at completing the ONE-TIME download; every request after that reuses the already-initialized in-memory engine and returns almost immediately, so this longer ceiling is only ever actually spent once per browser session. Priority lowered from 8 to 35 (see comment above) so this two-minute worst case is never in front of faster configured providers.',
+    notes: 'Requirement #4 browser/local model default, the step reached when no local Ollama server is detected. Runs a real LLM entirely inside this browser tab via WebGPU, no server, no key, no signup. Deliberately uses a small ~1B-parameter model (not a larger one) so first-time load has a real chance of finishing inside the timeout below on typical hardware; the model downloads once (roughly 700MB-1GB) and is cached by the browser afterward. If WebGPU is not available, or the model cannot finish loading within timeoutMs, this entry fails cleanly (see ProviderManager.withTimeout) and the chain moves on to Puter / any keyed provider — it can never block the rest of the app. ROOT CAUSE FIX: this was previously 25000ms, which real-world reports showed was consistently too short to finish a genuine first-time ~700MB-1GB download+init on typical home connections — WebLLM timed out on every single request and therefore never got the chance to finish caching the model even once. Raised to 120000ms (2 minutes) so a normal-speed connection has a realistic shot at completing the ONE-TIME download; every request after that reuses the already-initialized in-memory engine and returns almost immediately, so this longer ceiling is only ever actually spent once per browser session.',
     timeoutMs: 120000,
     retries: 0,
   },
@@ -168,7 +151,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     name: 'Pollinations (Free Image, no key)',
     type: 'image',
     adapterId: 'pollinations-free',
-    baseUrl: 'https://gen.pollinations.ai',
+    baseUrl: 'https://image.pollinations.ai',
     authType: 'none',
     defaultModel: 'flux',
     priority: 5,
@@ -176,7 +159,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: true,
     isPreset: true,
     isBuiltIn: true,
-    notes: 'ROOT CAUSE FIX: previously pointed at the legacy image.pollinations.ai/prompt endpoint, which Pollinations has since put behind a Cloudflare Turnstile challenge (every request failed with "403 Missing Turnstile token", since a plain GET can never solve a browser challenge). Now targets the current unified gen.pollinations.ai/image endpoint (see PollinationsFreeImageAdapter.ts), which is still genuinely usable with no signup and no key for reasonable/light use per Pollinations own docs. This is also what makes VIDEO work with zero keys by default: KenBurnsFallbackAdapter (the built-in last-resort video provider) generates its source still image through this same free image pipeline, then pans/zooms it into a real video file, so Image being free-by-default cascades into Video being free-by-default too.',
+    notes: 'Requirement default for IMAGE: Pollinations original, still-live, genuinely unauthenticated image endpoint (image.pollinations.ai, distinct from gen.pollinations.ai, which now requires a Pollen API key for everything, see PollinationsAdapters notes). Free, unlimited-for-reasonable-use, no signup. This is also what makes VIDEO work with zero keys by default: KenBurnsFallbackAdapter (the built-in last-resort video provider) generates its source still image through this same free image pipeline, then pans/zooms it into a real video file, so Image being free-by-default cascades into Video being free-by-default too.',
     timeoutMs: 30000,
     retries: 1,
   },
@@ -301,25 +284,13 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'huggingface',
     baseUrl: 'https://router.huggingface.co',
     authType: 'bearer',
-    // ROOT CAUSE FIX (user-reported: "HTTP 410: The requested model is
-    // deprecated and no longer supported by provider hf-inference"):
-    // FLUX.1-dev is a large, gated checkpoint that Hugging Face's own free
-    // `hf-inference` serverless backend — the exact endpoint this adapter
-    // calls (see HuggingFaceAdapter.callImage, `/hf-inference/models/...`)
-    // — has dropped from its free tier; every request 410s regardless of
-    // key validity. stable-diffusion-xl-base-1.0 is a long-standing,
-    // ungated model that hf-inference has kept serving on the free tier,
-    // so it's a far more reliable zero-configuration default here. A user
-    // who wants FLUX specifically can still type that model id into
-    // "Preferred model" in Keys & Providers — this only changes the
-    // out-of-the-box default.
-    defaultModel: 'stabilityai/stable-diffusion-xl-base-1.0',
+    defaultModel: 'black-forest-labs/FLUX.1-dev',
     priority: 20,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: true,
-    notes: 'Phase 2 fix: same as builtin-huggingface-text — now a real, priority-adjustable registry entry instead of an unconditionally-first hardcoded step. Default model changed from FLUX.1-dev to stable-diffusion-xl-base-1.0 because hf-inference (the free backend this adapter calls) stopped serving FLUX.1-dev (HTTP 410) — see comment above defaultModel.',
+    notes: 'Phase 2 fix: same as builtin-huggingface-text — now a real, priority-adjustable registry entry instead of an unconditionally-first hardcoded step.',
     timeoutMs: 30000,
     retries: 1,
   },
@@ -501,7 +472,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'openai-compatible',
     baseUrl: 'https://api.cerebras.ai/v1',
     authType: 'bearer',
-    defaultModel: 'llama-4-scout',
+    defaultModel: 'llama-4-scout-17b-16e-instruct',
     priority: 13,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -711,18 +682,13 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'huggingface',
     baseUrl: 'https://router.huggingface.co',
     authType: 'bearer',
-    // ROOT CAUSE FIX: FLUX.1-dev now 410s on hf-inference (see
-    // builtin-huggingface-image's comment above for the full explanation)
-    // — switched to the SDXL default this entry's own notes already
-    // recommended as the working fallback. Enter 'black-forest-labs/FLUX.1-dev'
-    // manually if your account has a provider route that still serves it.
-    defaultModel: 'stabilityai/stable-diffusion-xl-base-1.0',
+    defaultModel: 'black-forest-labs/FLUX.1-dev',
     priority: 30,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Default changed from black-forest-labs/FLUX.1-dev (now HTTP 410 on the free hf-inference backend) to stabilityai/stable-diffusion-xl-base-1.0. Manually enter a different model id if you have a provider route that serves FLUX.',
+    notes: 'Alternate default: stabilityai/stable-diffusion-xl-base-1.0. Manually enter the model id.',
     timeoutMs: 300000,
     retries: 3,
   },

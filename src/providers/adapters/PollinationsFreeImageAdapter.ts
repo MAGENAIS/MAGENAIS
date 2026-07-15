@@ -2,23 +2,22 @@ import { BaseAdapter } from './BaseAdapter';
 import { ProviderConfig } from '../types';
 
 /**
- * Pollinations free-tier image endpoint.
+ * Pollinations "classic" free image endpoint — image.pollinations.ai/prompt/{prompt}.
  *
- * ROOT CAUSE FIX (user-reported: "Pollinations (Free Image, no key) HTTP
- * 403: Missing Turnstile token"): this adapter used to target the legacy
- * `image.pollinations.ai/prompt/{prompt}` host. Pollinations has since
- * consolidated every modality behind the unified `gen.pollinations.ai`
- * gateway and put the old host behind a Cloudflare Turnstile
- * (browser-only, human-interaction) challenge — a plain server-style GET
- * can never pass that, so every request failed with HTTP 403 regardless of
- * network conditions or retries. Per Pollinations' own current docs and
- * examples (gen.pollinations.ai/docs), light/no-signup use of
- * `GET https://gen.pollinations.ai/image/{prompt}` is still genuinely
- * unauthenticated — no bot challenge, no key required for reasonable use —
- * so that's the endpoint this adapter now calls. If the user later adds an
- * API key to this same provider entry (Keys & Providers), it's sent along
- * too (higher, more reliable Pollen-based rate limits), but it is never
- * required.
+ * IMPORTANT — why this is a SEPARATE adapter from PollinationsAdapter:
+ * PollinationsAdapter (see PollinationsAdapter.ts) targets gen.pollinations.ai,
+ * which — per Pollinations' own current documentation — now requires a free
+ * Pollen API key ("Bring-Your-Own-Pollen") for ALL generation, including
+ * images. That's a real, useful provider once a user has a key, but it is
+ * NOT a zero-setup default.
+ *
+ * image.pollinations.ai is Pollinations' original, still-live, genuinely
+ * unauthenticated image generation endpoint: a plain GET request with the
+ * prompt in the URL path, no key, no signup, no rate-limit handshake. It is
+ * intentionally simple (no chat/audio/video modes — just images) and is
+ * registered as MAGENAIS's #1-priority IMAGE default so Image (and, via
+ * KenBurnsFallbackAdapter's still-image-then-pan approach, Video) works
+ * immediately after install with zero configuration.
  */
 export class PollinationsFreeImageAdapter extends BaseAdapter {
   label = 'Pollinations (Free Image, no key)';
@@ -37,13 +36,7 @@ export class PollinationsFreeImageAdapter extends BaseAdapter {
     const prompt = input?.prompt ?? input;
     if (!prompt) throw new Error('Image generation requires a prompt.');
 
-    // Guard against a stale locally-saved baseUrl (from before this fix)
-    // still pointing at the retired, Turnstile-gated host — always use the
-    // current unified gateway regardless of what's stored.
-    let base = (provider.baseUrl || 'https://gen.pollinations.ai').replace(/\/$/, '');
-    if (/(^|\/\/)image\.pollinations\.ai/i.test(base)) {
-      base = 'https://gen.pollinations.ai';
-    }
+    const base = (provider.baseUrl || 'https://image.pollinations.ai').replace(/\/$/, '');
     const params = new URLSearchParams({
       width: String(options?.width || 1024),
       height: String(options?.height || 1024),
@@ -53,19 +46,25 @@ export class PollinationsFreeImageAdapter extends BaseAdapter {
     if (options?.model || provider.defaultModel) {
       params.set('model', options?.model || provider.defaultModel);
     }
-    if (provider.apiKey) {
-      params.set('key', provider.apiKey);
-    }
-    const url = `${base}/image/${encodeURIComponent(String(prompt))}?${params.toString()}`;
+    const url = `${base}/prompt/${encodeURIComponent(String(prompt))}?${params.toString()}`;
 
     const response = await this.fetchWithRetry(url, { method: 'GET' }, provider);
     if (!response.ok) {
       if (response.status === 429) throw new Error('Pollinations is rate-limiting this request (429) — it will retry via the fallback chain.');
-      if (response.status === 403) {
-        const text = await response.text().catch(() => '');
-        throw new Error(`Pollinations rejected the request (403: ${text.slice(0, 120) || 'forbidden'}) — this can happen under heavy anonymous traffic; add a free key at enter.pollinations.ai for reliable access, or let the fallback chain continue.`);
-      }
       const text = await response.text().catch(() => '');
+      // ROOT CAUSE (user-reported: this genuinely-free, no-key endpoint
+      // started failing with HTTP 403 "Missing Turnstile token"): as of
+      // mid-2026 Pollinations added a Cloudflare Turnstile bot-check in
+      // front of anonymous image requests. Turnstile requires solving an
+      // interactive widget in a real page context — there's no way to
+      // pass it from a plain server-side/background fetch, by design, so
+      // this specific failure mode can't be worked around here; the
+      // honest fix is a clear message pointing at the actual alternative
+      // (a free Pollinations API key still works) instead of a raw JSON
+      // error dump that looks like a bug.
+      if (response.status === 403 && /turnstile/i.test(text)) {
+        throw new Error('Pollinations now requires a bot-check (Turnstile) for anonymous image requests that this app cannot solve automatically. Get a free API key at enter.pollinations.ai and add it in Keys & Providers to keep using Pollinations for images.');
+      }
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
     }
     const blob = await response.blob();

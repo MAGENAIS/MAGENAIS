@@ -114,11 +114,27 @@ export class WebLLMAdapter extends BaseAdapter {
    * user explicitly changes the "Preferred model" field.
    */
   private async getEngine(modelId: string, log?: (msg: string, level?: 'info' | 'warn' | 'error') => void): Promise<any> {
-    if (enginePromise && loadedModelId === modelId) return enginePromise;
+    if (enginePromise && loadedModelId === modelId) {
+      log?.(`WebLLM: reusing the already-loaded "${modelId}" engine from this browser session — should be fast.`, 'info');
+      return enginePromise;
+    }
 
     const webllm = await loadWebLLMModule();
     loadedModelId = modelId;
-    log?.(`WebLLM: downloading/initializing "${modelId}" locally in your browser (first run only; cached afterward)…`, 'info');
+    // ROOT CAUSE of "WebLLM sometimes succeeds, sometimes fails" (no code
+    // change fixes this outright — it's inherent to a real first-time
+    // multi-hundred-MB download racing a timeout — but it's worth
+    // explaining): ProviderManager.withTimeout races this whole call
+    // against provider.timeoutMs and, if it loses, simply stops waiting —
+    // it does NOT and cannot cancel the underlying CreateMLCEngine()
+    // download below, which keeps running in the background regardless
+    // and gets cached here in `enginePromise` the moment it finishes. So a
+    // request that times out isn't really "failed", it's "still loading" —
+    // and whichever request happens to come in AFTER that background
+    // download finally finishes will find `enginePromise` already
+    // resolved above and return near-instantly, which is exactly the
+    // "sometimes fails, sometimes succeeds fast" pattern being reported.
+    log?.(`WebLLM: first-time download/initialization of "${modelId}" in your browser — this can take up to the full timeout window on a normal connection. If this particular request times out, the download keeps running in the background regardless and your NEXT request should reuse it and be fast.`, 'info');
     enginePromise = webllm.CreateMLCEngine(modelId, {
       initProgressCallback: (progress: { text?: string }) => {
         Logger.debug(`WebLLM init: ${progress?.text || ''}`);

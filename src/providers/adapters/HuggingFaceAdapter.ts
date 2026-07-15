@@ -84,14 +84,34 @@ export class HuggingFaceAdapter extends BaseAdapter {
 
   private async callImage(provider: ProviderConfig, model: string, input: any, options?: any): Promise<string> {
     const prompt = input?.prompt ?? input;
-    const res = await this.jsonRequest(provider, this.endpoint(provider, `/hf-inference/models/${model}`), {
-      inputs: prompt,
-      parameters: {
-        width: options?.width ? parseInt(options.width, 10) : undefined,
-        height: options?.height ? parseInt(options.height, 10) : undefined,
-        ...(options?.extraParams || {}),
-      },
-    });
+    let res: Response;
+    try {
+      res = await this.jsonRequest(provider, this.endpoint(provider, `/hf-inference/models/${model}`), {
+        inputs: prompt,
+        parameters: {
+          width: options?.width ? parseInt(options.width, 10) : undefined,
+          height: options?.height ? parseInt(options.height, 10) : undefined,
+          ...(options?.extraParams || {}),
+        },
+      });
+    } catch (err: any) {
+      // ROOT CAUSE (user-reported: HF image providers failing with HTTP
+      // 410 "model is deprecated" regardless of which model id is
+      // configured): this isn't a per-model deprecation at all — Hugging
+      // Face's own docs confirm their free `hf-inference` serverless
+      // backend stopped serving image-generation models entirely in favor
+      // of routing through third-party providers (fal-ai, replicate,
+      // etc.) via a different endpoint shape this adapter doesn't
+      // implement yet. Every model id will 410 here, not just this one —
+      // surfacing that plainly (and quickly) instead of a raw JSON dump
+      // is the honest, correct behavior until that routed endpoint is
+      // implemented as its own follow-up.
+      const msg = err?.message || String(err);
+      if (/HTTP 410/.test(msg)) {
+        throw new Error(`Hugging Face's free image-generation endpoint has been retired (this is not specific to "${model}" — HF now only serves image models through paid third-party providers). Use a different image provider, or add a Hugging Face key that has one of those providers enabled.`);
+      }
+      throw err;
+    }
     const blob = await res.blob();
     if (blob.size < 500) throw new Error('Response was too small to be a real image — the model may have returned an error payload instead.');
     return URL.createObjectURL(blob);

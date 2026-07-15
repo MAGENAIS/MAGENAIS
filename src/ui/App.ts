@@ -174,7 +174,10 @@ export class App {
             <div class="empty-glyph">◇</div>
             <div class="empty-text">Nothing generated yet. Set a prompt or upload a file on the left and run the pipeline.</div>
           </div>
-          <div id="logPanel" style="display:flex; flex-direction:column; gap:4px;"></div>
+          <details class="log-details" id="logDetails">
+            <summary id="logSummary">Pipeline report</summary>
+            <div id="logPanel"></div>
+          </details>
         </section>
       </main>
       <footer class="statusbar">

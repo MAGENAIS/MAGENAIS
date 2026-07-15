@@ -52,11 +52,11 @@ export function summarizeReason(raw: string): string {
   if (s.includes("isn't pulled") || s.includes('model not found') || s.includes("model '") && s.includes('not found')) {
     return 'Model not installed';
   }
-  if (s.includes('deprecated') || s.includes('410')) {
-    return 'Model deprecated — try a different model ID';
+  if (s.includes('turnstile') || s.includes('bot-check') || s.includes('bot check')) {
+    return 'Blocked (bot-check)';
   }
-  if (s.includes('turnstile') || s.includes('cloudflare') && s.includes('challenge')) {
-    return 'Blocked by bot-protection';
+  if (s.includes('retired') || s.includes('deprecated') || s.includes('no longer serves')) {
+    return 'Endpoint retired';
   }
   if (s.includes('econnrefused') || s.includes('failed to fetch') || s.includes('not installed') || s.includes('network')) {
     return 'Not installed / unreachable';

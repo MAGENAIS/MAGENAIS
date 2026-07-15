@@ -231,7 +231,6 @@ section.output {
   text-align:center;
   gap:14px;
   background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.02), transparent 70%);
-  position: relative; /* own stacking context, same reasoning as #logPanel below */
 }
 /* Once the stage holds an actual result (not the empty placeholder), block
    text should read like normal prose, not sit centered in the middle of
@@ -264,42 +263,43 @@ section.output {
 
 /* Log panel — sits below .stage in the DOM (see App.ts's getAppShellMarkup)
    and is where pipeline status/error text belongs: after the generated
-   content, not before it. Collapses to nothing when empty so it never
-   reserves blank space in modes that don't use it. Entries use the
-   .log-line/.t/.msg classes defined further down.
-   ROOT CAUSE FIX (user-reported: "provider pipeline messages... mix with
-   other contents text, do not let me click buttons like read aloud"):
-   two real, separate bugs here. (1) `#logPanel` had no explicit stacking
-   context of its own (`position` was left at the default `static`) — it
-   still sits after `.stage` in normal document flow, but with no
-   guaranteed `position:relative` it could end up on the losing side of a
-   stray stacking context created elsewhere and visually collide with
-   `.stage`'s own content/buttons instead of cleanly following after it.
-   `position:relative` (no `z-index` override needed) pins it to its own
-   layer in the same painting order as normal flow. (2) it had no visible
-   label or boundary, so a long multi-line provider checklist (see
-   ProviderReport.ts) could read as if it were part of the generated
-   content itself rather than a distinct status section — the label below
-   and the capped, independently-scrollable height make the separation
-   unambiguous and stop a long report from pushing real content (or its
-   action buttons) far down the page. */
-#logPanel:empty{ display:none; }
-#logPanel{
-  padding-top:8px;
-  border-top:1px dashed var(--line);
-  position:relative;
-  max-height: 220px;
-  overflow-y: auto;
+   content, not before it. Entries use the .log-line/.t/.msg classes
+   defined further down.
+   ROOT CAUSE of "pipeline messages mix with / crowd out the actual
+   content": a run with many fallback attempts (or a multi-page doc
+   extraction) could produce 50-100+ status lines — often taller than the
+   result itself — sitting directly under it with only a thin dashed
+   border, no strong visual boundary, easy to mistake for part of the same
+   block. This is now a collapsible <details>, closed by default (see
+   Mode.ts's appendLog/clearLog — it only auto-opens on a warning/error),
+   with its own bordered/background box distinct from .stage or a code
+   block, so it never competes with the result or its buttons for
+   attention or space unless the person actually opens it. */
+.log-details {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
 }
-#logPanel:not(:empty)::before {
-  content: "Pipeline Report";
-  display:block;
+.log-details summary {
+  cursor: pointer;
+  padding: 9px 12px;
   font-family: var(--mono);
-  font-size:10px;
-  letter-spacing:0.08em;
-  text-transform:uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--ink-faint);
-  margin-bottom:6px;
+  user-select: none;
+}
+.log-details:empty,
+.log-details:has(#logPanel:empty) { display: none; }
+.log-details[open] summary { border-bottom: 1px solid var(--line); }
+#logPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 12px;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 /* Footer */
@@ -454,25 +454,10 @@ details.adv .adv-body{ padding: 4px 12px 14px; display:flex; flex-direction:colu
   gap:8px;
 }
 .log-line .t{ color: var(--ink-faint); opacity:0.6; min-width:64px; flex-shrink:0; }
-.log-line .msg{
-  /* ROOT CAUSE FIX: formatAllFailedMessage/formatProviderReport (see
-     ../providers/ProviderReport.ts) build a "✓/⚠" checklist joined with
-     real newline characters, and this is inserted via `textContent` (so
-     the newlines genuinely exist in the DOM text node) — but with no
-     `white-space` override here, default CSS text flow collapses every
-     newline into a single space, so the entire multi-provider checklist
-     rendered as one long run-on line instead of the intended one-entry-
-     per-line list. `pre-line` preserves the newlines while still wrapping
-     normally on whitespace, and `overflow-wrap` guards against a single
-     very long unbroken token (a raw error string/URL) forcing horizontal
-     overflow instead of wrapping. */
-  white-space: pre-line;
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
 .log-line.warn .t{ color: var(--amber); }
 .log-line.error .msg{ color: var(--rust); }
 .log-line.ok .msg{ color: var(--moss); }
+.log-line .count{ color: var(--ink-faint); font-style: italic; }
 
 /* Gallery */
 .gallery {
