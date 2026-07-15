@@ -234,4 +234,66 @@ export abstract class Mode {
       });
     });
   }
+
+  /**
+   * Shared "Read Aloud" control — renders a Play / Pause / Stop button row
+   * that reads arbitrary generated TEXT back to the user via the browser's
+   * free, built-in speechSynthesis voice. Unlike renderBrowserSpeechBlock
+   * (which is the fallback *player* for the Speech/TTS pipeline's audio
+   * output), this makes no provider call and needs no TTS pipeline at all —
+   * it's a pure accessibility/convenience affordance for reading back
+   * whatever text a mode already generated, and is what's wired into the
+   * Text, Documents, Research, Agents, and Vision tabs.
+   *
+   * `label` lets callers give the button row context when a single page has
+   * more than one read-aloud block (e.g. AgentsMode, one per pipeline step).
+   */
+  protected renderReadAloudBlock(text: string, label = 'Read Aloud'): string {
+    if (!text || !text.trim()) return '';
+    const id = 'readaloud-' + Math.random().toString(36).slice(2, 9);
+    return `
+      <div class="result-media read-aloud-block" data-readaloud="${id}" data-readaloud-text="${encodeURIComponent(text)}">
+        <div class="audio-controls">
+          <button type="button" class="ghost-btn" data-readaloud-action="play" data-target="${id}" title="Read this text aloud">▶ ${this.escapeHtml(label)}</button>
+          <button type="button" class="ghost-btn" data-readaloud-action="pause" data-target="${id}" title="Pause">⏸ Pause</button>
+          <button type="button" class="ghost-btn" data-readaloud-action="stop" data-target="${id}" title="Stop">⏹ Stop</button>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Wires up buttons rendered by renderReadAloudBlock. Safe to call
+   * multiple times / with multiple blocks in the same root — each block
+   * carries its own text via its data attribute, and Play on any block
+   * stops whatever the browser voice was previously reading (a browser tab
+   * can only speak one utterance at a time, matching how a real audio
+   * player would behave too).
+   */
+  protected wireReadAloudControls(root: HTMLElement = this.outputPanel): void {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    root.querySelectorAll('[data-readaloud-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = (btn as HTMLElement).dataset.readaloudAction;
+        const container = btn.closest('[data-readaloud-text]') as HTMLElement | null;
+        if (action === 'play') {
+          if (window.speechSynthesis.paused) { window.speechSynthesis.resume(); return; }
+          window.speechSynthesis.cancel(); // only one utterance can play at a time
+          const text = container ? decodeURIComponent(container.dataset.readaloudText || '') : '';
+          if (!text) return;
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        } else if (action === 'pause') {
+          window.speechSynthesis.pause();
+        } else if (action === 'stop') {
+          window.speechSynthesis.cancel();
+        }
+      });
+    });
+  }
+
+  /** Small local helper so renderReadAloudBlock doesn't inject unescaped labels into innerHTML. */
+  private escapeHtml(s: string): string {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
 }

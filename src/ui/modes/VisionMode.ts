@@ -37,7 +37,7 @@ export class VisionMode extends Mode {
           <span class="field-label" style="margin:0;">Live mode <span style="text-transform:none;color:var(--ink-faint);">analyze every 8 seconds</span></span>
         </label>
       </div>
-      <p class="hint">Vision uses your Anthropic or Google Gemini key (same one used for Text &amp; Voice) — both support real image understanding. Frames are analyzed on demand, not streamed anywhere.</p>
+      <p class="hint">Works out of the box via a local, in-browser captioning model (Transformers.js) — no key needed. Enable Anthropic, Gemini, or Ollama with a vision model (e.g. "llava") in Keys &amp; Providers for full open-ended visual Q&amp;A. Frames are analyzed on demand, not streamed anywhere.</p>
       <button class="run-btn" id="runBtn">▸ Analyze Frame</button>
     `);
 
@@ -156,7 +156,9 @@ export class VisionMode extends Mode {
           <div class="result-media">
             <img src="${imageBase64}" style="max-height:200px; border-radius:var(--radius); border:1px solid var(--line-bright); margin-bottom:12px;">
             <div class="result-text">${description}</div>
+            ${this.renderReadAloudBlock(stripMarkdownForSpeech(description))}
           </div>`;
+        this.wireReadAloudControls();
       }
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'vision', prompt: prompt || '[camera frame]', result: description, resultType: 'text',
@@ -214,6 +216,9 @@ export class VisionMode extends Mode {
     if (this.stream) {
       this.stream.getTracks().forEach(t => t.stop());
       this.stream = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
     }
   }
 

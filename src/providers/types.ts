@@ -38,6 +38,14 @@ export interface ProviderConfig {
   notes?: string;
   isPreset?: boolean;
   isBuiltIn?: boolean;          // from the original index.html
+  // Registered under type:'text' solely so ProviderManager.callVision()
+  // (which pulls its candidates from the 'text' pool, filtered by
+  // VISION_CAPABLE_ADAPTERS — there's no separate 'vision' ProviderType)
+  // can find it. Such an entry can never fulfil a genuine text-generation
+  // request (its adapter only implements image-captioning/etc, not
+  // general chat) — callWithFallback excludes anything flagged here from
+  // the plain-text candidate list, while callVision still includes it.
+  visionOnly?: boolean;
   // Runtime fields (not persisted)
   health?: ProviderHealth;
   lastUsed?: number;

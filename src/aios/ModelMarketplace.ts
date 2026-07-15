@@ -21,7 +21,20 @@ export class ModelMarketplace {
    */
   async fetchModels(): Promise<ModelListing[]> {
     try {
-      const response = await fetch(this.registryUrl);
+      // ROOT CAUSE FIX (reported: the whole app hangs/lags with no
+      // response on load): this fetch previously had no timeout at all.
+      // Kernel.boot() awaits fetchModels() before the UI ever mounts (see
+      // Kernel.ts) — if magenais.github.io is unreachable or just slow for
+      // this user's network, a plain `fetch()` can sit unresolved for a
+      // very long time (well past what any user would wait), and since
+      // NOTHING renders until boot() resolves, every single tab appeared
+      // to hang, not just this optional marketplace feature. An
+      // AbortController with a short timeout guarantees this never blocks
+      // app startup for more than a few seconds.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(this.registryUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       this.models = data.models || [];

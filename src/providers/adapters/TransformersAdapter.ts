@@ -30,7 +30,18 @@ function loadTransformersModule(): Promise<any> {
     // @ts-expect-error TS2307 — real runtime ES module resolved directly
     // from a CDN URL, not an npm package TypeScript can find declarations
     // for (see the matching comment in WebLLMAdapter.ts).
-    transformersModulePromise = import(/* @vite-ignore */ 'https://esm.run/@huggingface/transformers');
+    const importPromise = import(/* @vite-ignore */ 'https://esm.run/@huggingface/transformers');
+    // Same reasoning as WebLLMAdapter.loadWebLLMModule: this is just the
+    // small module wrapper, not model weights — bound it tightly so an
+    // unreachable CDN fails fast instead of consuming the whole provider
+    // timeout before the actual model pipeline gets a chance to start.
+    transformersModulePromise = Promise.race([
+      importPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out reaching the Transformers.js CDN module (no network access to esm.run?).')), 8000)),
+    ]).catch((err) => {
+      transformersModulePromise = null; // allow retry later instead of caching a permanent failure
+      throw err;
+    });
   }
   return transformersModulePromise;
 }

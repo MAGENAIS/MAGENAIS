@@ -25,6 +25,13 @@ import { ElevenLabsAdapter } from '../providers/adapters/ElevenLabsAdapter';
 import { PuterAdapter } from '../providers/adapters/PuterAdapter';
 import { BrowserSpeechAdapter } from '../providers/adapters/BrowserSpeechAdapter';
 import { KenBurnsFallbackAdapter } from '../providers/adapters/KenBurnsFallbackAdapter';
+// Zero-key local/browser/free-public adapters — see each file's header
+// comment for what makes it a genuine no-signup, no-payment default.
+import { OllamaAdapter } from '../providers/adapters/OllamaAdapter';
+import { WebLLMAdapter } from '../providers/adapters/WebLLMAdapter';
+import { TransformersAdapter } from '../providers/adapters/TransformersAdapter';
+import { PollinationsFreeImageAdapter } from '../providers/adapters/PollinationsFreeImageAdapter';
+import { WikipediaAdapter } from '../providers/adapters/WikipediaAdapter';
 
 // Workflow Engine
 import {
@@ -190,6 +197,19 @@ export class Kernel {
     this.providerRegistry.registerAdapter('puter', new PuterAdapter());
     this.providerRegistry.registerAdapter('browser-speech', new BrowserSpeechAdapter());
     this.providerRegistry.registerAdapter('internal-fallback', new KenBurnsFallbackAdapter(this.providerManager, this.router));
+
+    // Zero-key local/browser/free-public adapters (see defaultProviders.ts'
+    // "TRUE ZERO-SETUP DEFAULTS" section for the registry entries that use
+    // these). Registered unconditionally — each adapter's own
+    // testConnection()/call() detects at runtime whether its underlying
+    // requirement (a running local Ollama server, a WebGPU-capable browser,
+    // etc.) is actually met, and fails fast/cleanly if not, letting the
+    // fallback chain move on. No feature-detection is needed here.
+    this.providerRegistry.registerAdapter('ollama', new OllamaAdapter());
+    this.providerRegistry.registerAdapter('webllm', new WebLLMAdapter());
+    this.providerRegistry.registerAdapter('transformers', new TransformersAdapter());
+    this.providerRegistry.registerAdapter('pollinations-free', new PollinationsFreeImageAdapter());
+    this.providerRegistry.registerAdapter('wikipedia', new WikipediaAdapter());
   }
 
   // ------------------------------------------------------------------
@@ -227,13 +247,16 @@ export class Kernel {
     }
     await this.eventBus.emit('kernel:pluginsLoaded');
 
-    // 6. Fetch marketplaces (optional, can be lazy-loaded)
-    try {
-      await this.modelMarketplace.fetchModels();
-      await this.pluginMarketplace.fetchPlugins();
-    } catch (err) {
-      this.logger.warn('Marketplace fetch failed, continuing.', err);
-    }
+    // 6. Fetch marketplaces in the background — NOT awaited. These are
+    // optional (browse-only) registry listings, not required for any of
+    // the 11 core tabs to function; blocking app-mount on a remote fetch
+    // that isn't needed yet was the real cause of the app appearing to
+    // hang on load whenever that registry was slow/unreachable — each
+    // fetch already has its own 5s timeout (see ModelMarketplace.ts /
+    // PluginMarketplace.ts) and falls back to a small local list on
+    // failure, so this can safely run after the UI is already interactive.
+    this.modelMarketplace.fetchModels().catch(err => this.logger.warn('Marketplace fetch failed, continuing.', err));
+    this.pluginMarketplace.fetchPlugins().catch(err => this.logger.warn('Marketplace fetch failed, continuing.', err));
 
     this.isBooted = true;
     this.logger.info('Kernel booted successfully');

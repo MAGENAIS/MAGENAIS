@@ -45,11 +45,27 @@ function loadWebLLMModule(): Promise<any> {
     // esm.run (jsdelivr's ESM-optimized endpoint) serves an import-ready
     // ES module build — this is the standard zero-build-step way to pull
     // an npm package into a plain browser <script type="module"> context.
-    // @ts-expect-error TS2307 — this is a real ES module resolved at
-    // runtime directly from a CDN URL (like PluginLoader.ts's blob-URL
-    // plugin imports), not an npm package in this project's dependency
-    // graph, so TypeScript has no declaration file to check it against.
-    webllmModulePromise = import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm');
+    //
+    // Bounded with its own short race timeout: this is purely a network
+    // fetch of the (small) module wrapper, not the (large) model weights,
+    // so it should resolve in well under a second on a working connection.
+    // If it doesn't resolve at all within a few seconds, the CDN/network is
+    // unreachable — fail fast here rather than silently eating most of
+    // this provider's whole timeoutMs budget on a request that was never
+    // going to succeed, leaving no time for the model itself to load.
+    const importPromise =
+      // @ts-expect-error TS2307 — this is a real ES module resolved at
+      // runtime directly from a CDN URL (like PluginLoader.ts's blob-URL
+      // plugin imports), not an npm package in this project's dependency
+      // graph, so TypeScript has no declaration file to check it against.
+      import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm');
+    webllmModulePromise = Promise.race([
+      importPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out reaching the WebLLM CDN module (no network access to esm.run?).')), 8000)),
+    ]).catch((err) => {
+      webllmModulePromise = null; // allow retry later (e.g. once network is back) instead of caching a permanent failure
+      throw err;
+    });
   }
   return webllmModulePromise;
 }

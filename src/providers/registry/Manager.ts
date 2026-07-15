@@ -68,6 +68,11 @@ export class ProviderManager {
 
     const isFirstLaunch = stored.length === 0 && seededDefaultIds.length === 0;
     const seededSet = new Set(seededDefaultIds);
+    // Every entry the user's browser already has a persisted record for —
+    // used below to distinguish "brand new built-in the user has never
+    // seen" (safe to force on) from "the user has explicitly toggled this
+    // before" (their choice, including turning it off, must stick).
+    const storedIds = new Set(stored.map(p => p.id));
     const defaultsById = new Map<string, ProviderConfig>(defaultProviders.map(p => [p.id, p]));
 
     // Merge: stored providers override defaults by id, but we also add any
@@ -105,6 +110,48 @@ export class ProviderManager {
         p = { ...p, baseUrl: trueDefault.baseUrl, defaultModel: trueDefault.defaultModel };
         Logger.info(`ProviderManager: migrated "${p.name}" off the decommissioned GitHub Models endpoint.`);
       }
+      // One-time migration for requirement #3/#9 ("paid/keyed providers must
+      // never be selected by default"): earlier app versions shipped every
+      // keyed preset with `enabled: true` out of the box. That's exactly
+      // the "selected by default" behavior this refactor removes (see
+      // defaultProviders.ts, where every keyed entry is now
+      // `enabled: false`) — but an existing install's *stored* copy still
+      // has the old `enabled: true`, and the general "stored always wins"
+      // rule above would otherwise preserve that stale default forever.
+      // Auto-correct it — but ONLY when it's unambiguously an untouched
+      // leftover default: still enabled, still has no API key saved. The
+      // moment a user has actually configured a key, or hand-toggled the
+      // provider (in a version where that also meant "with a key"), this
+      // condition no longer holds and their choice is left completely
+      // alone, same spirit as the GitHub Models migration just above.
+      if (p.isPreset && !p.noKeyNeeded && p.enabled === true && !p.apiKey && trueDefault && trueDefault.enabled === false) {
+        p = { ...p, enabled: false };
+        Logger.info(`ProviderManager: "${p.name}" requires an API key and was never configured with one — moved to disabled-by-default (enable it any time in Keys & Providers).`);
+      }
+      // One-time migration: keep the zero-key, in-browser model adapters
+      // (WebLLM, Transformers.js) in sync on their internal reliability
+      // tuning values. These shipped with much longer timeouts and (for
+      // WebLLM) a heavier default model in an earlier version, before a
+      // responsiveness fix reduced them — but an install that already
+      // seeded these built-ins keeps the old, stale numbers forever under
+      // the normal "stored always wins" rule, silently reintroducing the
+      // exact multi-minute hangs that fix addressed. `timeoutMs` has no
+      // settings-UI field a user could have intentionally changed, so it's
+      // always safe to resync for these two specific, always-free
+      // adapters; `defaultModel` is only swapped when it still exactly
+      // equals the old known-stale value, so a genuinely user-picked
+      // "Preferred model" is left untouched.
+      if (trueDefault && p.isBuiltIn && p.noKeyNeeded && (p.adapterId === 'webllm' || p.adapterId === 'transformers')) {
+        const patch: Partial<ProviderConfig> = {};
+        if (p.timeoutMs !== trueDefault.timeoutMs) patch.timeoutMs = trueDefault.timeoutMs;
+        if (p.defaultModel === 'Llama-3.2-3B-Instruct-q4f16_1-MLC' && trueDefault.defaultModel !== p.defaultModel) {
+          patch.defaultModel = trueDefault.defaultModel;
+        }
+        if (Object.keys(patch).length > 0) {
+          p = { ...p, ...patch };
+          Logger.info(`ProviderManager: refreshed "${p.name}"'s tuning defaults (timeout/model) to the latest, faster-failing values.`);
+        }
+      }
       if (existing) {
         // Merge: stored values take precedence, but we keep the id and type from default if missing
         mergedMap.set(p.id, { ...existing, ...p });
@@ -117,21 +164,21 @@ export class ProviderManager {
 
     // Clear registry and load merged
     // Force-enable genuinely free, zero-setup built-ins (noKeyNeeded AND
-    // isBuiltIn) regardless of whatever their stored `enabled` value was.
-    // This is deliberately narrower than "always trust defaults" — it does
-    // NOT touch keyed/paid providers, where respecting an explicit
-    // disable is legitimate (e.g. to control spend or because the user
-    // doesn't want that vendor). But a provider that costs nothing and
-    // needs no credentials has no such reason to ever be off, and the
-    // entire point of shipping one (e.g. Puter.js for Vision) is to
-    // guarantee a capability works immediately after install with zero
-    // setup — a stale `enabled:false` left over from earlier testing (or
-    // any other cause) silently defeating that guarantee is a bug, not a
-    // preference worth preserving.
+    // isBuiltIn) — but ONLY when the user's browser has never seen this
+    // provider id before (isFirstLaunch, or a built-in introduced in a
+    // later app version than what they last loaded). This guarantees a
+    // fresh install — or an upgrade that adds a new free built-in — always
+    // starts with every no-cost option switched on, without ever
+    // resurrecting a provider the user has since, deliberately, turned
+    // off themselves (evidenced by its id already being present in
+    // `stored`): someone who wants only their own keyed providers to
+    // compete, with Ollama/WebLLM/Puter/etc. fully excluded rather than
+    // just deprioritized, can now flip them off in Keys & Providers and
+    // have that choice actually stick across reloads.
     for (const p of mergedMap.values()) {
-      if (p.noKeyNeeded && p.isBuiltIn && !p.enabled) {
+      if (p.noKeyNeeded && p.isBuiltIn && !p.enabled && !storedIds.has(p.id)) {
         p.enabled = true;
-        Logger.info(`ProviderManager: re-enabled free built-in provider "${p.name}" (it costs nothing and needs no key, so it stays on).`);
+        Logger.info(`ProviderManager: enabled free built-in provider "${p.name}" for the first time (it costs nothing and needs no key).`);
       }
     }
 
@@ -212,6 +259,42 @@ export class ProviderManager {
    * a single provider being down, rate-limited, or missing a key should not surface
    * as a hard failure while any other candidate could still succeed).
    */
+  /**
+   * ROOT CAUSE FIX (reported: every tab hangs/lags indefinitely with no
+   * response, even with Puter disabled/broken): callWithFallback and
+   * callVision previously did `await adapter.call(...)` with NO ceiling of
+   * their own. Adapters built on `fetchWithRetry` (Ollama, the free
+   * Pollinations image, Wikipedia) are self-bounded via AbortController —
+   * but PuterAdapter's `window.puter.ai.chat(...)` is a third-party SDK
+   * call with no timeout of its own, and WebLLMAdapter/TransformersAdapter
+   * load their models via a raw `import('https://esm.run/...')` that has
+   * no timeout either. If any of those genuinely hangs (a stuck Puter
+   * session, an unreachable CDN, a stalled model download), the ENTIRE
+   * fallback chain froze right there — every provider queued behind it,
+   * and every tab whose pipeline touched that provider type, never got a
+   * chance to run, let alone fail over.
+   *
+   * `withTimeout` wraps any adapter call in a race against
+   * `provider.timeoutMs` (already a required, validated field — see
+   * ProviderValidator — so every provider already declares how long it's
+   * willing to be waited on). Whichever settles first wins; a timeout
+   * rejects with a clear message that fallback treats exactly like any
+   * other provider error, so the chain always keeps moving no matter what
+   * an individual adapter does internally.
+   */
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: string): Promise<T> {
+    const bounded = Math.max(1000, timeoutMs || 30000); // never allow an effectively-zero/undefined timeout to fire instantly
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`${providerName} did not respond within ${Math.round(bounded / 1000)}s (timed out) — moving to the next available provider.`));
+      }, bounded);
+      promise.then(
+        (value) => { clearTimeout(timer); resolve(value); },
+        (err) => { clearTimeout(timer); reject(err); }
+      );
+    });
+  }
+
   async callWithFallback(
     type: ProviderType,
     router: SmartRouter,
@@ -221,7 +304,13 @@ export class ProviderManager {
   ): Promise<any> {
     const candidates = router
       .getSortedProviders(type)
-      .filter(p => p.noKeyNeeded || !!p.apiKey);
+      .filter(p => p.noKeyNeeded || !!p.apiKey)
+      // A provider can be registered under type:'text' purely so
+      // callVision() can find it (see the `visionOnly` doc comment in
+      // types.ts) — it has no ability to answer a genuine text-generation
+      // request, so exclude it here to avoid a guaranteed, noisy failure
+      // eating a slot (and a real timeout window) in the fallback chain.
+      .filter(p => !p.visionOnly);
 
     if (candidates.length === 0) {
       throw new Error(
@@ -255,11 +344,15 @@ export class ProviderManager {
           options.model && provider.adapterId === options.modelAdapterHint
             ? options.model
             : provider.defaultModel;
-        const result = await adapter!.call!(provider, input, {
-          ...options,
-          model: modelForThisProvider,
-          mode: provider.type,
-        });
+        const result = await this.withTimeout(
+          adapter!.call!(provider, input, {
+            ...options,
+            model: modelForThisProvider,
+            mode: provider.type,
+          }),
+          provider.timeoutMs,
+          provider.name
+        );
         log?.(`${provider.name} succeeded.`, 'info');
         return result;
       } catch (err: any) {
@@ -299,7 +392,13 @@ export class ProviderManager {
     // the *model* the user picked for that provider supports image input,
     // which the fallback chain below surfaces as a clear per-provider
     // error rather than pretending only a fixed list could ever work.
-    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible'];
+    // 'transformers' (Transformers.js image captioning, fully local/no-key)
+    // and 'ollama' (only useful if the user has pulled a vision-capable
+    // model like "llava" and set it as that provider's Preferred model) are
+    // included so Vision has a genuine zero-setup path — see
+    // builtin-transformers-vision in defaultProviders.ts, which is what
+    // guarantees this list is never empty on a fresh install.
+    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'transformers', 'ollama'];
     const candidates = router
       .getSortedProviders('text')
       .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey));
@@ -340,10 +439,14 @@ export class ProviderManager {
       }
       log?.(`Analyzing image with ${provider.name}…`);
       try {
-        const result = await adapter!.call!(
-          provider,
-          { prompt, imageBase64 },
-          { model: provider.defaultModel, mode: 'vision' }
+        const result = await this.withTimeout(
+          adapter!.call!(
+            provider,
+            { prompt, imageBase64 },
+            { model: provider.defaultModel, mode: 'vision' }
+          ),
+          provider.timeoutMs,
+          provider.name
         );
         log?.(`${provider.name} succeeded.`, 'info');
         return result;

@@ -17,7 +17,13 @@ export class PluginMarketplace {
 
   async fetchPlugins(): Promise<PluginListing[]> {
     try {
-      const response = await fetch(this.registryUrl);
+      // ROOT CAUSE FIX — see the matching comment in ModelMarketplace.ts:
+      // this fetch is on the app-boot critical path with no timeout of its
+      // own, so an unreachable registry could stall UI mount entirely.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(this.registryUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       this.plugins = data.plugins || [];
