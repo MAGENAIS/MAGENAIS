@@ -110,6 +110,22 @@ export class ProviderManager {
         p = { ...p, baseUrl: trueDefault.baseUrl, defaultModel: trueDefault.defaultModel };
         Logger.info(`ProviderManager: migrated "${p.name}" off the decommissioned GitHub Models endpoint.`);
       }
+      // One-time migration: two default model ids were confirmed to have
+      // been retired by their providers (both surfaced as a 400/404
+      // "model_not_found" in practice) — swap them for a current default,
+      // same narrow "only touch an exact known-stale value" approach as
+      // the GitHub Models migration above, so a deliberately custom
+      // "Preferred model" the user typed in themselves is never touched.
+      const STALE_MODEL_MIGRATIONS: Record<string, string> = {
+        'Qwen/Qwen3-32B-Instruct': 'meta-llama/Llama-3.3-70B-Instruct', // Hugging Face — stopped resolving
+        'llama-3.3-70b': 'llama-4-scout', // Cerebras — retired from their free-tier catalog
+      };
+      if (p.defaultModel && STALE_MODEL_MIGRATIONS[p.defaultModel] && trueDefault) {
+        const oldModel = p.defaultModel;
+        const newModel = STALE_MODEL_MIGRATIONS[oldModel];
+        p = { ...p, defaultModel: newModel };
+        Logger.info(`ProviderManager: "${p.name}"'s default model "${oldModel}" was retired by the provider — switched to "${newModel}".`);
+      }
       // One-time migration for requirement #3/#9 ("paid/keyed providers must
       // never be selected by default"): earlier app versions shipped every
       // keyed preset with `enabled: true` out of the box. That's exactly
