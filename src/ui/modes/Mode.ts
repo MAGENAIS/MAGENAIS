@@ -78,7 +78,7 @@ export abstract class Mode {
     const message = err?.message || String(err);
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement | null;
     if (stage && !stage.querySelector('.result-text, .result-media, .doc-summary-block')) {
-      stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text">Generation failed — see details below.</div>`;
+      stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text stage-error">Generation failed — see details below.</div>`;
     }
     this.appendLog(message, 'error');
   }

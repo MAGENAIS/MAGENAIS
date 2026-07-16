@@ -88,6 +88,29 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     retries: 0,
   },
   {
+    id: 'builtin-transformers-text',
+    name: 'Transformers.js Text (Browser, no key)',
+    type: 'text',
+    adapterId: 'transformers',
+    baseUrl: 'internal:transformers-text',
+    authType: 'none',
+    defaultModel: 'HuggingFaceTB/SmolLM2-360M-Instruct',
+    priority: 15,
+    enabled: true,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    // Genuine text-generation, unlike builtin-transformers-vision below
+    // (which is intentionally NOT this — see its visionOnly flag). Sits
+    // just after WebLLM: a real LLM in WebLLM is a better answer when
+    // WebGPU is available, but this one works via WASM/CPU on browsers
+    // WebLLM can't run on at all, so it's a broader-compatibility
+    // zero-key fallback, not a replacement for WebLLM.
+    notes: 'Small (360M-parameter) instruction-tuned model running fully in-browser via ONNX Runtime Web — noticeably weaker than WebLLM\'s model but works on any modern browser (WASM), not just WebGPU-capable ones. Uses WebGPU automatically when a real adapter is available, WASM otherwise (see TransformersAdapter.detectDevice). First request downloads and caches the model (~200-400MB); later requests are fast.',
+    timeoutMs: 90000,
+    retries: 0,
+  },
+  {
     id: 'builtin-transformers-vision',
     name: 'Transformers.js Vision (Browser, no key)',
     // NOTE: 'vision' is not a distinct ProviderType, Vision-tab requests are
@@ -143,6 +166,23 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     isPreset: true,
     isBuiltIn: true,
     notes: 'Requirement default for MUSIC: MusicGen running locally via Transformers.js, no key needed. This is a large model and generation is genuinely slow on CPU-only/WASM execution, so timeoutMs below is intentionally short (fails fast rather than blocking the Music tab for minutes) — if it times out, enable a keyed Music provider (Hugging Face MusicGen, Stable Audio, ...) in Advanced Settings for reliably fast results.',
+    timeoutMs: 30000,
+    retries: 0,
+  },
+  {
+    id: 'builtin-transformers-embeddings',
+    name: 'Transformers.js Embeddings (Browser, no key)',
+    type: 'embeddings',
+    adapterId: 'transformers',
+    baseUrl: 'internal:transformers-embeddings',
+    authType: 'none',
+    defaultModel: 'Xenova/all-MiniLM-L6-v2',
+    priority: 10,
+    enabled: true,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    notes: 'Local sentence-embedding vectors (384-dim, all-MiniLM-L6-v2) via Transformers.js, no key needed, fully offline after first (cached) model download — for any feature needing semantic similarity/vector search (e.g. a future local RAG/search feature). Currently the only provider registered under the \'embeddings\' type.',
     timeoutMs: 30000,
     retries: 0,
   },

@@ -14,6 +14,7 @@ export type ProviderType =
   | 'agents'
   | 'mcp'
   | 'research'
+  | 'embeddings'  // vector representations (Transformers.js all-MiniLM-L6-v2, etc.)
   | 'gamegen';
 
 export type AuthType = 'bearer' | 'header' | 'query' | 'none';

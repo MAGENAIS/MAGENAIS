@@ -232,6 +232,20 @@ section.output {
   gap:14px;
   background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.02), transparent 70%);
 }
+/* ROOT CAUSE (user-reported: after a failed generation, a huge blank area
+   sits above a tiny "!" icon, and the pipeline report below — the thing
+   that actually explains the failure and is opened automatically for
+   exactly this case — is pushed mostly or entirely below the fold): the
+   base .stage rule above uses flex:1, so it always grows to fill 100% of
+   the leftover height in section.output's column — appropriate for the
+   pre-generation "nothing yet" placeholder where there's nothing else to
+   show, but wrong for the failure placeholder, which sits right above a
+   report the user needs to actually read. Capping .stage back down to its
+   natural min-height here (instead of flex:1) leaves the rest of the
+   column's height for .log-details. */
+.stage:has(.stage-error) {
+  flex: 0 0 auto;
+}
 /* Once the stage holds an actual result (not the empty placeholder), block
    text should read like normal prose, not sit centered in the middle of
    the panel — and it should align to the START of the line as resolved by

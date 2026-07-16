@@ -105,6 +105,16 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
       duration: node.config?.duration,
       voice: node.config?.voice,
       style: node.config?.style,
+      // ROOT CAUSE: several adapters (Ollama's auto-retry-with-correct-tag
+      // message, WebLLM's/Transformers.js's first-time-download progress
+      // notes, KenBurnsFallback) read `options?.log` expecting the same
+      // live logger passed to callWithFallback — but that logger was only
+      // ever threaded through as callWithFallback's separate 5th
+      // positional argument (`context.log`, below), never copied into the
+      // options object adapters actually receive. Every `options?.log?.()`
+      // call in those adapters was silently a no-op. Adding it here once
+      // fixes it for all of them.
+      log: context.log,
       ...options,
     };
 

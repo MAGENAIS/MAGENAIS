@@ -481,7 +481,15 @@ export class ProviderManager {
     const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'transformers', 'ollama'];
     const candidates = router
       .getSortedProviders('text')
-      .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey));
+      .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
+      // 'transformers' now backs two distinct provider entries sharing
+      // this one adapterId — a genuine text-generation one (see
+      // builtin-transformers-text) and an image-captioning one (see
+      // builtin-transformers-vision, visionOnly:true). Only the latter
+      // belongs here; including the text entry would try to run its
+      // chat model through an image-to-text pipeline and guarantee a
+      // failure on every single Vision request.
+      .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true);
 
     if (candidates.length === 0) {
       // Diagnose the actual cause instead of one generic message — in
@@ -525,7 +533,7 @@ export class ProviderManager {
           adapter!.call!(
             provider,
             { prompt, imageBase64 },
-            { model: provider.defaultModel, mode: 'vision' }
+            { model: provider.defaultModel, mode: 'vision', log }
           ),
           provider.timeoutMs,
           provider.name
