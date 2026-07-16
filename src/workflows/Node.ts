@@ -331,8 +331,29 @@ export class DocNodeExecutor extends BaseNodeExecutor {
       // API keys configured. Document summarization is a text-generation
       // task, so route it through the 'text' provider pool — the same
       // pattern ProviderManager.callVision already uses for vision.
-      const summary = await this.callProvider(node, { prompt: summaryPrompt }, context, {}, 'text');
-      return { extractedText: text, summary };
+      //
+      // RUNTIME AUDIT FIX (Phase 3 #6 — "extraction must never fail because
+      // AI generation failed"): text extraction above has already succeeded
+      // by this point — the PDF/DOCX/OCR parsing is done and `text` is real,
+      // usable output. Previously this callProvider() call was awaited
+      // un-caught, so when every text provider in the fallback chain failed
+      // (e.g. no API keys configured and the in-browser models timed out),
+      // the thrown error propagated straight out of execute(), discarding
+      // `text` entirely — DocMode's catch block then rendered a bare error
+      // screen with no way to see the document that WAS successfully read.
+      // Catching just this step means a failed/unconfigured AI summarizer
+      // degrades to "show the extracted text, note that summarization
+      // wasn't available" instead of hiding a real, successful result.
+      try {
+        const summary = await this.callProvider(node, { prompt: summaryPrompt }, context, {}, 'text');
+        return { extractedText: text, summary };
+      } catch (err: any) {
+        context.log?.(
+          `Document text was extracted successfully, but AI ${node.config?.question ? 'question-answering' : 'summarization'} failed: ${err?.message || err}`,
+          'warn'
+        );
+        return { extractedText: text, summaryError: err?.message || String(err) };
+      }
     }
     return { extractedText: text };
   }

@@ -52,7 +52,9 @@ export class AnthropicAdapter extends BaseAdapter {
           messages: [{ role: 'user', content }],
         }),
       },
-      provider
+      provider,
+      undefined,
+      options?.signal
     );
     if (!response.ok) {
       const text = await response.text();

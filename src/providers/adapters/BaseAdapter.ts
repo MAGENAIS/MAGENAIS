@@ -71,19 +71,32 @@ export abstract class BaseAdapter implements Adapter {
 
   /**
    * Perform a fetch with retries and timeout.
+   *
+   * `externalSignal` (added for the ProviderManager "first success wins"
+   * race — see Manager.ts callWithFallback): when provided, aborting it
+   * cancels the in-flight fetch immediately, on top of this method's own
+   * per-attempt timeout controller. An abort from the caller intentionally
+   * skips the retry/backoff loop below, since retrying a call the caller
+   * no longer wants is wasted work — a faster sibling provider already won.
    */
   protected async fetchWithRetry(
     url: string,
     init: RequestInit,
     provider: ProviderConfig,
-    retries?: number
+    retries?: number,
+    externalSignal?: AbortSignal
   ): Promise<Response> {
+    if (externalSignal?.aborted) {
+      throw new Error(`${provider.name} request was cancelled before it started.`);
+    }
     const maxRetries = retries !== undefined ? retries : provider.retries || 0;
     const timeout = provider.timeoutMs || 30000;
     let attempt = 0;
     while (attempt <= maxRetries) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
+      const onExternalAbort = () => controller.abort();
+      externalSignal?.addEventListener('abort', onExternalAbort);
       try {
         const response = await fetch(url, {
           ...init,
@@ -93,12 +106,17 @@ export abstract class BaseAdapter implements Adapter {
         return response;
       } catch (err: any) {
         clearTimeout(timeoutId);
+        if (externalSignal?.aborted) {
+          throw new Error(`${provider.name} request was cancelled — a faster provider already responded.`);
+        }
         attempt++;
         if (attempt > maxRetries) throw err;
         // Simple backoff
         const backoff = Math.min(1000 * Math.pow(2, attempt), 8000);
         await new Promise(r => setTimeout(r, backoff));
         Logger.debug(`Retry ${attempt}/${maxRetries} for ${provider.name}`);
+      } finally {
+        externalSignal?.removeEventListener('abort', onExternalAbort);
       }
     }
     throw new Error('Max retries exceeded');

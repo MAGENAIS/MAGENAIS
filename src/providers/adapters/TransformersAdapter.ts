@@ -254,9 +254,30 @@ export class TransformersAdapter extends BaseAdapter {
     if (!prompt) throw new Error('Transformers.js text generation requires a prompt.');
     const model = provider.defaultModel || 'HuggingFaceTB/SmolLM2-360M-Instruct';
     const generator = await getPipeline('text-generation', model, options?.log);
+    // RUNTIME AUDIT FIX (Phase 3 — "model download finishes, inference never
+    // completes"): getPipeline() resolving only means the download+ONNX
+    // session creation phase is done — it says nothing about how long actual
+    // token generation will take. That was the missing half of the picture:
+    // this call's max_new_tokens ceiling (previously a flat 1024 regardless
+    // of backend) is fine on WebGPU, but on WASM/CPU — the fallback used by
+    // every browser without a WebGPU adapter — autoregressive decoding of a
+    // 360M-parameter model has no GPU acceleration or batching, and 512-1024
+    // tokens can alone take well over a minute. Manager.ts's withTimeout
+    // wraps the ENTIRE call (download + inference together), so on WASM the
+    // generation step alone could consume the whole remaining budget after
+    // an already-slow download, timing out with a message that looks
+    // identical to a genuine hang. Scaling the ceiling to the detected
+    // device — not just leaving it fixed — is the actual fix; the log line
+    // below also marks the download→inference boundary so a future timeout
+    // report shows which phase it happened in instead of one opaque
+    // "did not respond within 90s".
+    const device = await detectDevice();
+    const deviceTokenCeiling = device === 'webgpu' ? 1024 : 220;
+    const maxNewTokens = Math.min(options?.maxTokens || 512, deviceTokenCeiling);
+    options?.log?.(`Transformers.js: model ready, running inference on ${device === 'webgpu' ? 'WebGPU' : 'WASM/CPU'} (up to ${maxNewTokens} tokens)…`, 'info');
     const messages = [{ role: 'user', content: prompt }];
     const output = await generator(messages, {
-      max_new_tokens: Math.min(options?.maxTokens || 512, 1024),
+      max_new_tokens: maxNewTokens,
       temperature: options?.temperature ?? 0.7,
       do_sample: true,
     });

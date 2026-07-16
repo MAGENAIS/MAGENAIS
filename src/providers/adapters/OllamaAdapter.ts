@@ -102,7 +102,9 @@ export class OllamaAdapter extends BaseAdapter {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       },
-      provider
+      provider,
+      undefined,
+      options?.signal
     );
     if (!response.ok && response.status === 404) {
       const text = await response.text();
@@ -134,7 +136,9 @@ export class OllamaAdapter extends BaseAdapter {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...body, model: match }),
               },
-              provider
+              provider,
+              undefined,
+              options?.signal
             );
           } else if (installed.length > 0) {
             throw new Error(`Ollama is running, but "${model}" isn't among the models it actually has installed (${installed.slice(0, 6).join(', ')}${installed.length > 6 ? ', …' : ''}) — set one of those as this provider's Preferred model, or run "ollama pull ${model}".`);
@@ -168,7 +172,9 @@ export class OllamaAdapter extends BaseAdapter {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, prompt: String(text) }),
       },
-      provider
+      provider,
+      undefined,
+      options?.signal
     );
     if (!response.ok) {
       const text2 = await response.text();

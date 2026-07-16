@@ -37,7 +37,7 @@ export class WikipediaAdapter extends BaseAdapter {
 
     // 1. Find the best-matching article title via the search API.
     const searchUrl = `${base}/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=1`;
-    const searchRes = await this.fetchWithRetry(searchUrl, { method: 'GET' }, provider);
+    const searchRes = await this.fetchWithRetry(searchUrl, { method: 'GET' }, provider, undefined, options?.signal);
     if (!searchRes.ok) throw new Error(`Wikipedia search HTTP ${searchRes.status}`);
     const searchJson = await searchRes.json();
     const title = searchJson?.query?.search?.[0]?.title;
@@ -47,7 +47,7 @@ export class WikipediaAdapter extends BaseAdapter {
     // the REST summary endpoint — already extracted/cleaned by Wikimedia,
     // no HTML parsing needed on our end.
     const summaryUrl = `${base}/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-    const summaryRes = await this.fetchWithRetry(summaryUrl, { method: 'GET' }, provider);
+    const summaryRes = await this.fetchWithRetry(summaryUrl, { method: 'GET' }, provider, undefined, options?.signal);
     if (!summaryRes.ok) throw new Error(`Wikipedia summary HTTP ${summaryRes.status}`);
     const summaryJson = await summaryRes.json();
     const extract: string | undefined = summaryJson?.extract;

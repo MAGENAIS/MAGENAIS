@@ -44,7 +44,7 @@ export class HuggingFaceAdapter extends BaseAdapter {
       case 'speech':
         return this.callSpeech(provider, model, input, options);
       case 'audio':
-        return this.callAudioTranscription(provider, model, input);
+        return this.callAudioTranscription(provider, model, input, options);
       case 'music':
         return this.callMusic(provider, model, input, options);
       default:
@@ -56,10 +56,10 @@ export class HuggingFaceAdapter extends BaseAdapter {
     return provider.baseUrl.replace(/\/$/, '') + path;
   }
 
-  private async jsonRequest(provider: ProviderConfig, url: string, body: any): Promise<Response> {
+  private async jsonRequest(provider: ProviderConfig, url: string, body: any, signal?: AbortSignal): Promise<Response> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, url, headers);
-    const response = await this.fetchWithRetry(finalUrl, { method: 'POST', headers: finalHeaders, body: JSON.stringify(body) }, provider);
+    const response = await this.fetchWithRetry(finalUrl, { method: 'POST', headers: finalHeaders, body: JSON.stringify(body) }, provider, undefined, signal);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
@@ -75,7 +75,7 @@ export class HuggingFaceAdapter extends BaseAdapter {
       temperature: options?.temperature ?? 0.7,
       max_tokens: options?.maxTokens || 1024,
       stream: false,
-    });
+    }, options?.signal);
     const json = await res.json();
     const text = json.choices?.[0]?.message?.content;
     if (!text) throw new Error('Model returned no text — response shape was unexpected.');
@@ -93,7 +93,7 @@ export class HuggingFaceAdapter extends BaseAdapter {
           height: options?.height ? parseInt(options.height, 10) : undefined,
           ...(options?.extraParams || {}),
         },
-      });
+      }, options?.signal);
     } catch (err: any) {
       // ROOT CAUSE (user-reported: HF image providers failing with HTTP
       // 410 "model is deprecated" regardless of which model id is
@@ -121,7 +121,7 @@ export class HuggingFaceAdapter extends BaseAdapter {
     const body = pipelineType === 'image-to-video'
       ? { image_url: input?.imageUrl ?? input, prompt: options?.prompt }
       : { prompt: input?.prompt ?? input, num_frames: options?.numFrames, fps: options?.fps };
-    const res = await this.jsonRequest(provider, this.endpoint(provider, `/fal-ai/${model}`), body);
+    const res = await this.jsonRequest(provider, this.endpoint(provider, `/fal-ai/${model}`), body, options?.signal);
     const contentType = res.headers.get('content-type') || '';
     if (contentType.startsWith('video/')) {
       const blob = await res.blob();
@@ -137,13 +137,13 @@ export class HuggingFaceAdapter extends BaseAdapter {
 
   private async callSpeech(provider: ProviderConfig, model: string, input: any, options?: any): Promise<string> {
     const text = input?.prompt ?? input;
-    const res = await this.jsonRequest(provider, this.endpoint(provider, `/hf-inference/models/${model}`), { inputs: text });
+    const res = await this.jsonRequest(provider, this.endpoint(provider, `/hf-inference/models/${model}`), { inputs: text }, options?.signal);
     const blob = await res.blob();
     if (blob.size < 200) throw new Error('Response was too small to be real audio.');
     return URL.createObjectURL(blob);
   }
 
-  private async callAudioTranscription(provider: ProviderConfig, model: string, input: any): Promise<string> {
+  private async callAudioTranscription(provider: ProviderConfig, model: string, input: any, options?: any): Promise<string> {
     const blob: Blob = input?.blob ?? input;
     if (!(blob instanceof Blob)) {
       throw new Error('Audio transcription requires a Blob/File as input.');
@@ -151,7 +151,7 @@ export class HuggingFaceAdapter extends BaseAdapter {
     const url = this.endpoint(provider, `/hf-inference/models/${model}`);
     const headers: Record<string, string> = { 'Content-Type': blob.type || 'application/octet-stream' };
     const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, url, headers);
-    const response = await this.fetchWithRetry(finalUrl, { method: 'POST', headers: finalHeaders, body: blob }, provider);
+    const response = await this.fetchWithRetry(finalUrl, { method: 'POST', headers: finalHeaders, body: blob }, provider, undefined, options?.signal);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
@@ -167,7 +167,7 @@ export class HuggingFaceAdapter extends BaseAdapter {
     const res = await this.jsonRequest(provider, this.endpoint(provider, `/hf-inference/models/${model}`), {
       inputs: prompt,
       parameters: { duration: options?.duration, ...(options?.extraParams || {}) },
-    });
+    }, options?.signal);
     const blob = await res.blob();
     if (blob.size < 500) throw new Error('Response was too small to be real audio.');
     return URL.createObjectURL(blob);

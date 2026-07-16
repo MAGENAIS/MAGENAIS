@@ -48,7 +48,7 @@ export class PollinationsFreeImageAdapter extends BaseAdapter {
     }
     const url = `${base}/prompt/${encodeURIComponent(String(prompt))}?${params.toString()}`;
 
-    const response = await this.fetchWithRetry(url, { method: 'GET' }, provider);
+    const response = await this.fetchWithRetry(url, { method: 'GET' }, provider, undefined, options?.signal);
     if (!response.ok) {
       if (response.status === 429) throw new Error('Pollinations is rate-limiting this request (429) — it will retry via the fallback chain.');
       const text = await response.text().catch(() => '');

@@ -50,6 +50,25 @@ export class ProviderValidator {
         } catch {
           errors.push(`${provider.name || provider.id}: Base URL "${provider.baseUrl}" is not a valid URL.`);
         }
+        // AUDIT FIX (Medium priority): OpenAICompatibleAdapter always appends its
+        // own path suffix (e.g. '/chat/completions', '/audio/speech') to whatever
+        // baseUrl is configured. If a user manually pastes a baseUrl that already
+        // ends in one of those segments — an easy mistake when copying a URL from
+        // a provider's own docs, which often show the full endpoint rather than
+        // the API root — the adapter silently doubles the path (e.g.
+        // '.../v1/responses' + '/chat/completions' => '.../v1/responses/chat/
+        // completions', a URL that will never exist). Previously this surfaced
+        // only as an opaque 404 with no indication of why. This check doesn't
+        // change call behavior — it only adds an early, specific warning so the
+        // real cause is visible instead of a bare "HTTP 404".
+        const suspiciousSuffixes = ['/chat/completions', '/completions', '/responses', '/audio/speech', '/audio/transcriptions', '/images/generations'];
+        const trimmedBaseUrl = provider.baseUrl.replace(/\/$/, '').toLowerCase();
+        const suffixHit = suspiciousSuffixes.find(s => trimmedBaseUrl.endsWith(s));
+        if (suffixHit) {
+          errors.push(
+            `${provider.name || provider.id}: Base URL "${provider.baseUrl}" already ends in "${suffixHit}", but this adapter appends its own path suffix on top of it, which will double the path. Set the Base URL to just the API root (e.g. "https://api.example.com/v1"), not the full endpoint.`
+          );
+        }
       }
     }
     if (provider.timeoutMs === undefined || provider.timeoutMs === null || provider.timeoutMs <= 0) {

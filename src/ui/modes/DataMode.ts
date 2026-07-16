@@ -113,6 +113,7 @@ export class DataMode extends Mode {
         chartData = { colName: this.parsedData.headers[colIdx] || `Column ${colIdx+1}`, values, labels };
       }
       let aiText = null;
+      let aiError: string | null = null;
       if (prompt) {
         // Use workflow to get AI answer
         const workflow = {
@@ -132,14 +133,29 @@ export class DataMode extends Mode {
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.parsedData, prompt }, (msg, level) => this.appendLog(msg, level));
-        aiText = result.finalOutput;
-        this.kernel.getStore().getActions().addHistoryEntry({
-          mode: 'data', prompt, result: aiText, resultType: 'text',
-        });
+        // RUNTIME AUDIT FIX (same class as DocNodeExecutor's extraction/summary
+        // split): `stats` and `chartData` above are computed locally and have
+        // nothing to do with the AI provider chain — but this call was
+        // previously un-caught inside the outer try/catch, so when every text
+        // provider failed (no keys configured, all fallbacks down), the whole
+        // handleGenerate() aborted to the generic error screen and the stats/
+        // chart the user actually asked to see were thrown away along with the
+        // failed AI request. Catching just this step means an unavailable AI
+        // analyzer degrades to "show the stats and chart, note that the
+        // question couldn't be answered" instead of hiding a real result.
+        try {
+          const result = await this.kernel.getWorkflowEngine().execute(workflow, { file: this.parsedData, prompt }, (msg, level) => this.appendLog(msg, level));
+          aiText = result.finalOutput;
+          this.kernel.getStore().getActions().addHistoryEntry({
+            mode: 'data', prompt, result: aiText, resultType: 'text',
+          });
+        } catch (err: any) {
+          aiError = err?.message || String(err);
+          this.appendLog(`Stats/chart are ready, but answering your question failed: ${aiError}`, 'warn');
+        }
       }
       // Render result with stats, chart, AI text
-      this.renderDataResult(stats, chartData, aiText);
+      this.renderDataResult(stats, chartData, aiText, aiError);
     } catch (err: any) {
       this.renderError(err);
     }
@@ -154,7 +170,7 @@ export class DataMode extends Mode {
     return -1;
   }
 
-  private renderDataResult(stats: any, chartData: any, aiText: string | null): void {
+  private renderDataResult(stats: any, chartData: any, aiText: string | null, aiError?: string | null): void {
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
     if (!stage) return;
     let html = '';
@@ -168,6 +184,8 @@ export class DataMode extends Mode {
     }
     if (aiText) {
       html += `<div class="doc-summary-block" style="margin-bottom:16px;"><div class="result-text">${aiText}</div></div>`;
+    } else if (aiError) {
+      html += `<div class="doc-summary-block" style="margin-bottom:16px; border-left: 3px solid var(--warn, #d97706); padding-left:12px;"><p class="field-label" style="color:var(--warn, #d97706);">Answer unavailable</p><div class="result-text" style="opacity:0.85;">${aiError}. Stats${chartData ? ' and chart' : ''} below are still available.</div></div>`;
     }
     if (chartData) {
       html += `<div class="chart-wrap"><canvas id="dataChart" height="160"></canvas></div>`;

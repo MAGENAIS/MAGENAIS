@@ -23,7 +23,9 @@ export class ElevenLabsAdapter extends BaseAdapter {
         headers: finalHeaders,
         body: JSON.stringify({ text, model_id: provider.defaultModel || 'eleven_multilingual_v2' }),
       },
-      provider
+      provider,
+      undefined,
+      options?.signal
     );
     if (!response.ok) {
       const errText = await response.text();

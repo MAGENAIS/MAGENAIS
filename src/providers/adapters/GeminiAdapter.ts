@@ -37,7 +37,9 @@ export class GeminiAdapter extends BaseAdapter {
         headers: finalHeaders,
         body: JSON.stringify({ contents: [{ parts }] }),
       },
-      provider
+      provider,
+      undefined,
+      options?.signal
     );
     if (!response.ok) {
       const text = await response.text();

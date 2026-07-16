@@ -75,7 +75,7 @@ export class PollinationsAdapter extends BaseAdapter {
       fetchOptions.body = JSON.stringify(body);
     }
 
-    const response = await this.fetchWithRetry(finalUrl, fetchOptions, provider);
+    const response = await this.fetchWithRetry(finalUrl, fetchOptions, provider, undefined, options?.signal);
     if (!response.ok) {
       const text = await response.text();
       // Provide specific error if it's about Pollen balance

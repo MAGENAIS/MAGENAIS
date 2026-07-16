@@ -116,12 +116,22 @@ export class DocMode extends Mode {
     if (!stage) return;
     const extracted = typeof payload === 'string' ? payload : payload?.extractedText;
     const summary = typeof payload === 'string' ? null : payload?.summary;
+    const summaryError = typeof payload === 'string' ? null : payload?.summaryError;
     let html = '';
     if (question) {
       html += `<p class="field-label">Question</p><div class="doc-summary-block" style="margin-bottom:14px;"><div class="result-text">${question}</div></div>`;
     }
     if (summary) {
       html += `<p class="field-label">${question ? 'Answer' : 'Summary'}</p><div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${summary}</div>${this.renderReadAloudBlock(stripMarkdownForSpeech(summary), question ? 'Read Answer Aloud' : 'Read Summary Aloud')}</div>`;
+    } else if (summaryError) {
+      // RUNTIME AUDIT FIX (Phase 3 #6): text extraction can succeed even
+      // when AI summarization/QA fails (no provider configured, every
+      // fallback provider down, etc.) — Node.ts's DocNodeExecutor now
+      // returns the extracted text plus this error note instead of
+      // throwing and losing the extracted text entirely. Show it as a
+      // clear, dismissable notice rather than silently having no
+      // summary section and no explanation why.
+      html += `<div class="doc-summary-block" style="margin-bottom:18px; border-left: 3px solid var(--warn, #d97706); padding-left:12px;"><p class="field-label" style="color:var(--warn, #d97706);">${question ? 'Answer' : 'Summary'} unavailable</p><div class="result-text" style="opacity:0.85;">Text extraction succeeded, but AI processing failed: ${summaryError}. The extracted text below is still available.</div></div>`;
     }
     if (extracted) {
       html += `<details class="adv"><summary>Extracted text (${extracted.length.toLocaleString()} characters)</summary><div class="adv-body"><div class="result-text" style="white-space:pre-wrap; max-height:340px; overflow:auto;">${extracted.slice(0, 20000)}</div></div></details>`;

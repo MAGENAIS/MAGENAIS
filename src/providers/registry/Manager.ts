@@ -357,94 +357,159 @@ export class ProviderManager {
       );
     }
 
-    const errors: string[] = [];
     // ProviderReport (see ../ProviderReport.ts): mirrors `errors` above but
     // keeps enough structure (name + status) to render the ✓ / ⚠ checklist
     // the app's Provider Report requirement calls for, without changing
     // this method's return type or any caller.
     const attempts: ProviderAttempt[] = [];
+
+    // Priority 4: validate endpoint, model/adapter, auth/API key, and
+    // timeout BEFORE attempting the call, with a clear reason recorded
+    // per-provider instead of only ever seeing a raw fetch error (or a
+    // provider being silently skipped with no explanation at all). This
+    // pass is synchronous and cheap — it must finish before anything races,
+    // so an obviously-unusable provider (no key, no adapter, etc.) never
+    // occupies a race slot or delays the ones that actually can run.
+    const runnable: { provider: ProviderConfig; adapter: import('../types').Adapter }[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
-      // Priority 4: validate endpoint, model/adapter, auth/API key, and
-      // timeout BEFORE attempting the call, with a clear reason recorded
-      // per-provider instead of only ever seeing a raw fetch error (or a
-      // provider being silently skipped with no explanation at all).
       const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
       if (!validation.valid) {
         const reason = validation.errors.join(' ');
         log?.(`${provider.name}: skipped — ${reason}`, 'warn');
-        errors.push(`${provider.name}: ${reason}`);
         attempts.push({ name: provider.name, status: 'skipped', detail: reason });
         continue;
       }
-      log?.(`Trying ${provider.name}…`);
-      const attemptStartedAt = Date.now();
-      try {
-        // The UI's "Preferred model" field offers provider-specific aliases
-        // (e.g. Pollinations' own "openai"/"mistral"/"claude" routing names) —
-        // applying that override to every other provider in the fallback chain
-        // would force an invalid model id on them the moment the intended
-        // provider fails. Only honor it for the adapter it was written for;
-        // every other candidate falls back to its own configured defaultModel.
+      runnable.push({ provider, adapter: adapter! });
+    }
+
+    if (runnable.length === 0) {
+      throw new Error(formatAllFailedMessage(type, attempts));
+    }
+
+    // Surface the race up front so it never looks like a silent hang —
+    // worst case is now the SLOWEST single candidate's timeout, not the sum
+    // of all of them, because they run in parallel (see raceForFirstSuccess
+    // below), and in practice it resolves as soon as the fastest succeeds.
+    if (runnable.length > 1) {
+      const worstCaseMs = Math.max(...runnable.map(r => r.provider.timeoutMs || 30000));
+      log?.(
+        `Racing ${runnable.length} provider(s) in parallel — first valid response wins, the rest are ` +
+        `cancelled: ${runnable.map(r => r.provider.name).join(', ')} ` +
+        `(worst case, if only the slowest succeeds: up to ~${Math.round(worstCaseMs / 1000)}s).`
+      );
+    } else {
+      log?.(`Trying ${runnable[0].provider.name}…`);
+    }
+
+    return this.raceForFirstSuccess(runnable, type, input, options, attempts, log);
+  }
+
+  /**
+   * "Fastest Successful Provider Wins" — the core reliability/latency fix
+   * (Phase 2 of the runtime audit). The previous implementation `await`ed
+   * each candidate in strict priority order, one at a time — a slow-but-
+   * eventually-successful first candidate (or several that each burn their
+   * full `timeoutMs` failing before the next is even started) meant total
+   * wait time was the SUM of every attempt ahead of the one that finally
+   * answered, occasionally over two minutes for a request that a healthy
+   * provider answers in 1-2 seconds.
+   *
+   * Here every runnable candidate is started at the same time. Whichever
+   * settles successfully FIRST resolves the whole call immediately — the
+   * user sees output as fast as the single fastest provider, not the sum of
+   * every one tried before it. The remaining in-flight attempts are told to
+   * abort via `options.signal` (adapters built on `fetchWithRetry` — the
+   * majority — honor this and cancel their network request immediately;
+   * see BaseAdapter.fetchWithRetry). Third-party SDK calls with no
+   * cancellation hook of their own (Puter, WebLLM, Transformers.js model
+   * loading) can't be forcibly stopped — exactly as the requirement allows
+   * ("ignored after a winner exists") — so those are simply left to finish
+   * in the background and their eventual result is discarded; they don't
+   * block the response that already rendered.
+   *
+   * Every attempt (winner, cancelled loser, or genuine failure) still
+   * updates provider health and feeds the Pipeline Report — diagnostics
+   * keep collecting in the background exactly as Phase 2 requires, they
+   * just no longer gate the response.
+   */
+  private raceForFirstSuccess(
+    runnable: { provider: ProviderConfig; adapter: import('../types').Adapter }[],
+    type: ProviderType,
+    input: any,
+    options: Record<string, any>,
+    attempts: ProviderAttempt[],
+    log?: (message: string, level?: 'info' | 'warn' | 'error') => void
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const total = runnable.length;
+      const controllers = runnable.map(() => new AbortController());
+      let settled = 0;
+      let winnerFound = false;
+
+      const maybeLogBackgroundReport = () => {
+        if (settled === total && winnerFound && attempts.length > 1) {
+          log?.(`Provider report (background diagnostics):\n${formatProviderReport(attempts)}`, 'info');
+        }
+      };
+
+      runnable.forEach(({ provider, adapter }, index) => {
+        const attemptStartedAt = Date.now();
+        // Same per-provider model-alias rule as before: the UI's
+        // "Preferred model" override only applies to the adapter it was
+        // written for, never forced onto every other racing candidate.
         const modelForThisProvider =
           options.model && provider.adapterId === options.modelAdapterHint
             ? options.model
             : provider.defaultModel;
-        const result = await this.withTimeout(
-          adapter!.call!(provider, input, {
+
+        this.withTimeout(
+          adapter.call!(provider, input, {
             ...options,
-            model: modelForThisProvider,
-            mode: provider.type,
+            model: options.mode ? (options.model ?? provider.defaultModel) : modelForThisProvider,
+            mode: options.mode || provider.type,
+            signal: controllers[index].signal,
           }),
           provider.timeoutMs,
           provider.name
-        );
-        log?.(`${provider.name} succeeded.`, 'info');
-        // ROOT CAUSE (user-reported: "have a priority/intelligence so the
-        // quickest, most reliable providers get tried first" — issue #7):
-        // SmartRouter.scoreProvider already factors in health, latency,
-        // and success rate (see Router.ts) — the scoring logic was never
-        // the gap. It was that nothing ever fed it real data: the only
-        // thing that ever called registry.updateHealth() was a separate,
-        // shallow testConnection() probe (e.g. WebLLM's just checks
-        // "does navigator.gpu exist", not "can it actually finish a real
-        // generation") — so a provider that reliably times out on every
-        // real request could still show as "healthy" and keep getting
-        // tried first forever. Recording the real outcome/latency of
-        // every actual attempt here means getSortedProviders' scoring
-        // genuinely adapts over a session: a provider that keeps timing
-        // out sinks in the ranking, a fast reliable one rises — same
-        // priority field as a tiebreaker/starting point, but no longer
-        // the only thing that matters.
-        this.registry.updateHealth(provider.id, {
-          status: 'healthy',
-          lastCheck: Date.now(),
-          responseTime: Date.now() - attemptStartedAt,
+        ).then((result) => {
+          settled++;
+          this.registry.updateHealth(provider.id, {
+            status: 'healthy',
+            lastCheck: Date.now(),
+            responseTime: Date.now() - attemptStartedAt,
+          });
+          attempts.push({ name: provider.name, status: 'ok' });
+          if (!winnerFound) {
+            winnerFound = true;
+            log?.(`${provider.name} succeeded first — rendering result now.`, 'info');
+            // Cancel every other still-pending attempt. Abortable ones
+            // (fetch-based adapters) stop immediately; non-abortable ones
+            // are simply ignored once they eventually settle below.
+            controllers.forEach((c, i) => { if (i !== index) c.abort(); });
+            resolve(result);
+          }
+          maybeLogBackgroundReport();
+        }).catch((err: any) => {
+          settled++;
+          const message = err?.message || String(err);
+          this.registry.updateHealth(provider.id, {
+            status: 'unhealthy',
+            lastCheck: Date.now(),
+            responseTime: Date.now() - attemptStartedAt,
+            lastError: message,
+          });
+          attempts.push({ name: provider.name, status: 'error', detail: message });
+          if (!winnerFound) {
+            log?.(`${provider.name} failed — ${message}`, 'error');
+          }
+          if (settled === total && !winnerFound) {
+            reject(new Error(formatAllFailedMessage(type, attempts)));
+          }
+          maybeLogBackgroundReport();
         });
-        attempts.push({ name: provider.name, status: 'ok' });
-        // Surface the full checklist (winner + everyone skipped/failed
-        // before it) as one summary log line, so a user who only glances
-        // at the last log entry still sees the full picture, not just
-        // "succeeded" with no context on what else was tried.
-        if (attempts.length > 1) {
-          log?.(`Provider report:\n${formatProviderReport(attempts)}`, 'info');
-        }
-        return result;
-      } catch (err: any) {
-        const message = err?.message || String(err);
-        this.registry.updateHealth(provider.id, {
-          status: 'unhealthy',
-          lastCheck: Date.now(),
-          responseTime: Date.now() - attemptStartedAt,
-          lastError: message,
-        });
-        errors.push(`${provider.name}: ${message}`);
-        attempts.push({ name: provider.name, status: 'error', detail: message });
-        log?.(`${provider.name} failed — ${message}`, 'error');
-      }
-    }
-
-    throw new Error(formatAllFailedMessage(type, attempts));
+      });
+    });
   }
 
   /**
@@ -515,43 +580,43 @@ export class ProviderManager {
       throw new Error(`No vision-capable provider is configured or enabled. ${reason}`);
     }
 
-    const errors: string[] = [];
     const attempts: ProviderAttempt[] = [];
+    const runnable: { provider: ProviderConfig; adapter: import('../types').Adapter }[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
       const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
       if (!validation.valid) {
         const reason = validation.errors.join(' ');
         log?.(`${provider.name}: skipped — ${reason}`, 'warn');
-        errors.push(`${provider.name}: ${reason}`);
         attempts.push({ name: provider.name, status: 'skipped', detail: reason });
         continue;
       }
-      log?.(`Analyzing image with ${provider.name}…`);
-      try {
-        const result = await this.withTimeout(
-          adapter!.call!(
-            provider,
-            { prompt, imageBase64 },
-            { model: provider.defaultModel, mode: 'vision', log }
-          ),
-          provider.timeoutMs,
-          provider.name
-        );
-        log?.(`${provider.name} succeeded.`, 'info');
-        attempts.push({ name: provider.name, status: 'ok' });
-        if (attempts.length > 1) {
-          log?.(`Provider report:\n${formatProviderReport(attempts)}`, 'info');
-        }
-        return result;
-      } catch (err: any) {
-        const message = err?.message || String(err);
-        errors.push(`${provider.name}: ${message}`);
-        attempts.push({ name: provider.name, status: 'error', detail: message });
-        log?.(`${provider.name} failed — ${message}`, 'error');
-      }
+      runnable.push({ provider, adapter: adapter! });
     }
-    throw new Error(formatAllFailedMessage('vision', attempts));
+
+    if (runnable.length === 0) {
+      throw new Error(formatAllFailedMessage('vision', attempts));
+    }
+
+    if (runnable.length > 1) {
+      log?.(`Racing ${runnable.length} vision-capable provider(s) in parallel — first valid response wins: ` +
+        `${runnable.map(r => r.provider.name).join(', ')}.`);
+    } else {
+      log?.(`Analyzing image with ${runnable[0].provider.name}…`);
+    }
+
+    // Same "fastest successful provider wins" race as callWithFallback (see
+    // raceForFirstSuccess's doc comment) — Vision requests no longer wait
+    // for slower multimodal providers once a faster one has already
+    // produced a valid description.
+    return this.raceForFirstSuccess(
+      runnable,
+      'vision' as ProviderType,
+      { prompt, imageBase64 },
+      { mode: 'vision', log },
+      attempts,
+      log
+    );
   }
 
   // Delegate some methods to registry for convenience

@@ -106,8 +106,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     // WebGPU is available, but this one works via WASM/CPU on browsers
     // WebLLM can't run on at all, so it's a broader-compatibility
     // zero-key fallback, not a replacement for WebLLM.
-    notes: 'Small (360M-parameter) instruction-tuned model running fully in-browser via ONNX Runtime Web — noticeably weaker than WebLLM\'s model but works on any modern browser (WASM), not just WebGPU-capable ones. Uses WebGPU automatically when a real adapter is available, WASM otherwise (see TransformersAdapter.detectDevice). First request downloads and caches the model (~200-400MB); later requests are fast.',
-    timeoutMs: 90000,
+    notes: 'Small (360M-parameter) instruction-tuned model running fully in-browser via ONNX Runtime Web — noticeably weaker than WebLLM\'s model but works on any modern browser (WASM), not just WebGPU-capable ones. Uses WebGPU automatically when a real adapter is available, WASM otherwise (see TransformersAdapter.detectDevice). First request downloads and caches the model (~200-400MB); later requests are fast. ROOT CAUSE FIX: on WASM/CPU (no WebGPU), generation length is now capped lower than on WebGPU (see TransformersAdapter.generateText) — CPU-only autoregressive decoding has no acceleration, so the previous flat 1024-token ceiling could alone exceed this timeout even after the model had already finished downloading, which read exactly like a hang. timeoutMs raised alongside that fix so a slower first-time download still has room left for inference afterward.',
+    timeoutMs: 120000,
     retries: 0,
   },
   {

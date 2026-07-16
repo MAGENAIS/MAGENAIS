@@ -46,10 +46,10 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
     return provider.baseUrl.replace(/\/$/, '') + path;
   }
 
-  private async request(provider: ProviderConfig, url: string, init: RequestInit): Promise<Response> {
+  private async request(provider: ProviderConfig, url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
     const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, url, headers);
-    const response = await this.fetchWithRetry(finalUrl, { ...init, headers: finalHeaders }, provider);
+    const response = await this.fetchWithRetry(finalUrl, { ...init, headers: finalHeaders }, provider, undefined, signal);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
@@ -87,7 +87,7 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
         temperature: options?.temperature ?? 0.8,
         max_tokens: options?.maxTokens ?? 1024,
       }),
-    });
+    }, options?.signal);
     const json = await response.json();
     const text = json.choices?.[0]?.message?.content;
     if (!text) throw new Error(`empty response from ${provider.name}`);
@@ -104,7 +104,7 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
         width: options?.width,
         height: options?.height,
       }),
-    });
+    }, options?.signal);
     const contentType = response.headers.get('content-type') || '';
     if (contentType.startsWith('image/')) {
       const blob = await response.blob();
@@ -127,7 +127,7 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
         prompt: input?.prompt ?? input,
         duration: options?.duration,
       }),
-    });
+    }, options?.signal);
     const contentType = response.headers.get('content-type') || '';
     if (contentType.startsWith('video/')) {
       const blob = await response.blob();
@@ -149,7 +149,7 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
         voice: options?.voice || 'alloy',
         input: input?.prompt ?? input,
       }),
-    });
+    }, options?.signal);
     const blob = await response.blob();
     return URL.createObjectURL(blob);
   }
@@ -162,7 +162,7 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
     form.append('model', provider.defaultModel || 'whisper-1');
     const headers: Record<string, string> = {};
     const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, this.url(provider, '/audio/transcriptions'), headers);
-    const response = await this.fetchWithRetry(finalUrl, { method: 'POST', headers: finalHeaders, body: form }, provider);
+    const response = await this.fetchWithRetry(finalUrl, { method: 'POST', headers: finalHeaders, body: form }, provider, undefined, options?.signal);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
@@ -182,7 +182,7 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
         prompt: input?.prompt ?? input,
         duration: options?.duration || 30,
       }),
-    });
+    }, options?.signal);
     const blob = await response.blob();
     if (blob.size < 500) throw new Error('Response was too small to be real audio.');
     return URL.createObjectURL(blob);
