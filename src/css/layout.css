@@ -184,6 +184,8 @@ section.output {
   min-width: 0;
 }
 .output-header {
+  order: 0;
+  flex-shrink: 0;
   display:flex;
   justify-content:space-between;
   align-items:baseline;
@@ -218,7 +220,24 @@ section.output {
 .pipeline-trace .arrow{ color: var(--ink-faint); }
 
 .stage {
-  flex:1;
+  /* ROOT CAUSE (user-reported, screenshot: "pipeline report window overlays
+     output panels", text appearing to run through/behind the report box):
+     the previous `flex:1` shorthand is flex-grow:1 flex-shrink:1
+     flex-basis:0%. With flex-basis:0%, the flexbox algorithm starts .stage's
+     hypothetical size at 0 and grows it from there — `min-height:280px` only
+     guarantees a FLOOR, it does not stop the box from ending up shorter than
+     its actual content (a long script/article/doc summary). Since .stage has
+     no `overflow` of its own (default: visible), any content taller than the
+     box the algorithm assigned rendered PAST .stage's bottom edge — visibly
+     overlapping/interleaving with `.log-details` (the pipeline report),
+     which sits immediately after it in this flex column, exactly matching
+     the reported symptom. `flex:1 0 auto` (flex-shrink:0, flex-basis:auto)
+     still lets .stage grow to fill available space when content is short
+     (the empty-state placeholder), but never shrinks below what its content
+     actually needs, so nothing can spill onto — or hover over — the report
+     below it. */
+  flex: 1 0 auto;
+  order: 1;
   display:flex;
   flex-direction:column;
   align-items:center;
@@ -290,6 +309,14 @@ section.output {
    block, so it never competes with the result or its buttons for
    attention or space unless the person actually opens it. */
 .log-details {
+  /* Belt-and-suspenders on top of the .stage flex-basis fix above: pin this
+     to the very bottom of the output column and make it non-squeezable, so
+     it can never again end up overlapping or interleaved with generated
+     content, regardless of what any individual mode renders into .stage. */
+  order: 2;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--bg);
