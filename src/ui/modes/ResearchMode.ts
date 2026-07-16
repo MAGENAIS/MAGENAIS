@@ -98,20 +98,21 @@ export class ResearchMode extends Mode {
       ).join('')}</div>`;
     }
     if (summary) {
-      html += `<div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${summary}</div>${this.renderReadAloudBlock(stripMarkdownForSpeech(summary), 'Read Summary Aloud')}</div>`;
+      html += `<div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${this.renderMarkdown(summary)}</div>${this.renderReadAloudBlock(stripMarkdownForSpeech(summary), 'Read Summary Aloud')}</div>`;
     }
     if (papers?.length) {
       html += `<p class="field-label">Sources (${papers.length})</p>`;
       html += papers.slice(0, 20).map((p: any) => `
         <div class="paper-card" style="border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
-          <div style="font-weight:600;">${p.title || 'Untitled'}</div>
-          <div style="color:var(--ink-faint); font-size:.85em;">${p.authors || 'Unknown authors'} · ${p.year || 'n.d.'} · ${p.source}${p.citations != null ? ' · ' + p.citations + ' citations' : ''}</div>
-          ${p.url ? `<a href="${p.url}" target="_blank" rel="noopener">View source →</a>` : ''}
+          <div style="font-weight:600;">${this.escapeHtml(p.title || 'Untitled')}</div>
+          <div style="color:var(--ink-faint); font-size:.85em;">${this.escapeHtml(p.authors || 'Unknown authors')} · ${this.escapeHtml(String(p.year || 'n.d.'))} · ${this.escapeHtml(String(p.source))}${p.citations != null ? ' · ' + this.escapeHtml(String(p.citations)) + ' citations' : ''}</div>
+          ${p.url ? `<a href="${this.escapeHtml(p.url)}" target="_blank" rel="noopener">View source →</a>` : ''}
         </div>
       `).join('');
     }
     stage.innerHTML = html || '<div class="empty-text">No results.</div>';
     this.wireReadAloudControls();
+    this.wireCodeCopyButtons(stage);
   }
 
   deactivate(): void {

@@ -5,37 +5,6 @@ const LANGUAGES = [
   'C#', 'Go', 'Rust', 'PHP', 'Swift', 'Kotlin', 'SQL', 'Bash',
 ];
 
-function escapeHtml(s: string): string {
-  const div = document.createElement('div');
-  div.textContent = s ?? '';
-  return div.innerHTML;
-}
-
-/** Turns fenced ```lang ... ``` blocks into styled, copyable <pre><code> blocks; everything else stays as plain text. */
-function renderMarkdownCode(raw: string): string {
-  const parts = raw.split(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g);
-  let html = '';
-  for (let i = 0; i < parts.length; i += 3) {
-    const text = parts[i];
-    if (text && text.trim()) {
-      html += `<p style="margin:0 0 10px;">${escapeHtml(text.trim()).replace(/\n/g, '<br>')}</p>`;
-    }
-    const lang = parts[i + 1];
-    const code = parts[i + 2];
-    if (code !== undefined) {
-      html += `
-        <div class="code-block" style="position:relative; margin-bottom:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-raised); border:1px solid var(--line-bright); border-bottom:none; border-radius:var(--radius) var(--radius) 0 0; padding:6px 10px;">
-            <span class="provider-meta">${escapeHtml(lang || 'code')}</span>
-            <button class="ghost-btn small copy-code-btn" type="button">Copy</button>
-          </div>
-          <pre style="margin:0; background:var(--bg); border:1px solid var(--line-bright); border-radius:0 0 var(--radius) var(--radius); padding:12px; overflow-x:auto;"><code>${escapeHtml(code.trim())}</code></pre>
-        </div>`;
-    }
-  }
-  return html || `<p>${escapeHtml(raw)}</p>`;
-}
-
 export class CodingMode extends Mode {
   activate(): void {
     this.renderControl(`
@@ -85,15 +54,8 @@ export class CodingMode extends Mode {
       const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt: request }, (msg, level) => this.appendLog(msg, level));
       const output = result.finalOutput || 'No output';
       if (stage) {
-        stage.innerHTML = `<div class="result-text">${renderMarkdownCode(output)}</div>`;
-        stage.querySelectorAll('.copy-code-btn').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const code = btn.closest('.code-block')?.querySelector('code')?.textContent || '';
-            navigator.clipboard.writeText(code);
-            btn.textContent = 'Copied!';
-            setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-          });
-        });
+        stage.innerHTML = `<div class="result-text">${this.renderMarkdown(output)}</div>`;
+        this.wireCodeCopyButtons(stage);
       }
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'coding', prompt: `[${language}] ${request}`, result: output, resultType: 'text',

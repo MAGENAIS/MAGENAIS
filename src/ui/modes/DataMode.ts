@@ -183,14 +183,15 @@ export class DataMode extends Mode {
       </div>`;
     }
     if (aiText) {
-      html += `<div class="doc-summary-block" style="margin-bottom:16px;"><div class="result-text">${aiText}</div></div>`;
+      html += `<div class="doc-summary-block" style="margin-bottom:16px;"><div class="result-text">${this.renderMarkdown(aiText)}</div></div>`;
     } else if (aiError) {
-      html += `<div class="doc-summary-block" style="margin-bottom:16px; border-left: 3px solid var(--warn, #d97706); padding-left:12px;"><p class="field-label" style="color:var(--warn, #d97706);">Answer unavailable</p><div class="result-text" style="opacity:0.85;">${aiError}. Stats${chartData ? ' and chart' : ''} below are still available.</div></div>`;
+      html += `<div class="doc-summary-block" style="margin-bottom:16px; border-left: 3px solid var(--warn, #d97706); padding-left:12px;"><p class="field-label" style="color:var(--warn, #d97706);">Answer unavailable</p><div class="result-text" style="opacity:0.85;">${this.escapeHtml(aiError)}. Stats${chartData ? ' and chart' : ''} below are still available.</div></div>`;
     }
     if (chartData) {
       html += `<div class="chart-wrap"><canvas id="dataChart" height="160"></canvas></div>`;
     }
     stage.innerHTML = html;
+    this.wireCodeCopyButtons(stage);
     if (chartData && typeof Chart !== 'undefined') {
       const ctx = (document.getElementById('dataChart') as HTMLCanvasElement | null)?.getContext('2d');
       if (ctx) {

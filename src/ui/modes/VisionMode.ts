@@ -155,10 +155,11 @@ export class VisionMode extends Mode {
         stage.innerHTML = `
           <div class="result-media">
             <img src="${imageBase64}" style="max-height:200px; border-radius:var(--radius); border:1px solid var(--line-bright); margin-bottom:12px;">
-            <div class="result-text">${description}</div>
+            <div class="result-text">${this.renderMarkdown(description)}</div>
             ${this.renderReadAloudBlock(stripMarkdownForSpeech(description))}
           </div>`;
         this.wireReadAloudControls();
+        this.wireCodeCopyButtons(stage);
       }
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'vision', prompt: prompt || '[camera frame]', result: description, resultType: 'text',

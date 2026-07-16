@@ -349,8 +349,143 @@ export abstract class Mode {
     });
   }
 
-  /** Small local helper so renderReadAloudBlock doesn't inject unescaped labels into innerHTML. */
-  private escapeHtml(s: string): string {
+  /**
+   * RUNTIME AUDIT FIX (Phase 6 — shared Output component): every mode
+   * inserted its AI-generated text straight into `.result-text` via a raw
+   * template literal (`` `<div class="result-text">${output}</div>` ``) with
+   * NO markdown formatting and NO HTML-escaping at all. Two real problems
+   * followed from that, and both are fixed here once, for every tab, rather
+   * than per-mode:
+   *   1. Every model in this app is instructed/expected to answer in
+   *      Markdown (headers, **bold**, lists, ```code``` fences) — with no
+   *      renderer, users saw the literal '#', '**', and back-tick
+   *      characters instead of formatted text, inconsistent with
+   *      CodingMode, which already had its own local, code-fence-only
+   *      version of this (`renderMarkdownCode`, now removed — this
+   *      supersedes it with fuller Markdown support, still shared).
+   *   2. Raw, unescaped interpolation means literal HTML/script-like text
+   *      the model happens to output (e.g. explaining a `<script>` tag, or
+   *      echoing a snippet of a user's own HTML back) was parsed as real
+   *      markup by the browser instead of displayed as text — broken
+   *      layout at best, and not a pattern worth leaving in place even
+   *      though model output isn't a classic untrusted-attacker input.
+   * Everything is escaped FIRST; formatting (bold/italic/headers/lists/
+   * links/code) is then layered on top of the already-escaped text, so a
+   * literal `<div>` in the model's answer always renders as visible text,
+   * never as markup.
+   */
+  protected renderMarkdown(raw: string): string {
+    if (!raw) return '';
+    // Pull out fenced code blocks first (and escape their contents) so
+    // markdown syntax inside code — e.g. a literal '**' in a code sample —
+    // is never mistaken for formatting by the passes below.
+    const codeBlocks: string[] = [];
+    let working = raw.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_m, lang: string, code: string) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push(`
+        <div class="code-block" style="position:relative; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-raised); border:1px solid var(--line-bright); border-bottom:none; border-radius:var(--radius) var(--radius) 0 0; padding:6px 10px;">
+            <span class="provider-meta">${this.escapeHtml(lang || 'code')}</span>
+            <button class="ghost-btn small copy-code-btn" type="button">Copy</button>
+          </div>
+          <pre style="margin:0; background:var(--bg); border:1px solid var(--line-bright); border-radius:0 0 var(--radius) var(--radius); padding:12px; overflow-x:auto;"><code>${this.escapeHtml(code.trim())}</code></pre>
+        </div>`);
+      return `\u0000CODEBLOCK${idx}\u0000`;
+    });
+
+    // Escape everything else — from this point on `working` is safe HTML
+    // text, and every regex below only ever adds tags, never removes the
+    // escaping the browser needs to treat the model's own text as text.
+    working = this.escapeHtml(working);
+
+    // Inline code: `like this`
+    working = working.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    // Bold and italic (bold first, so **_x_** doesn't get eaten by italic).
+    working = working.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    working = working.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    // Headers (# through ######), one per line.
+    working = working.replace(/^(#{1,6})\s+(.+)$/gm, (_m, hashes: string, text: string) => {
+      const level = Math.min(hashes.length, 6);
+      return `<h${level} style="margin:14px 0 8px;">${text}</h${level}>`;
+    });
+    // Links: [text](url) — escaped text/url already came through escapeHtml
+    // above, so this only adds the anchor tag around already-safe content.
+    working = working.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+    // Single-pass, line-based block builder for headers/lists/code-blocks/
+    // paragraphs. (An earlier version of this ran lists and paragraph-
+    // wrapping as two separate passes; any list, header, or code block that
+    // wasn't already isolated by a blank line — e.g. "Intro:\n- item one" —
+    // ended up nested INSIDE a <p>, with stray <br> tags forced between
+    // list items. Building every block type in one left-to-right pass over
+    // the lines avoids that: any block-level line — an <h#>, a restored
+    // code-block placeholder, or a list item — immediately flushes and
+    // closes whatever paragraph/list was open, instead of being pulled
+    // into it.)
+    const lines = working.split('\n');
+    const out: string[] = [];
+    let listType: 'ul' | 'ol' | null = null;
+    let paraBuf: string[] = [];
+    const flushPara = () => {
+      if (paraBuf.length) {
+        out.push(`<p style="margin:0 0 10px;">${paraBuf.join('<br>')}</p>`);
+        paraBuf = [];
+      }
+    };
+    const closeList = () => {
+      if (listType) { out.push(`</${listType}>`); listType = null; }
+    };
+    for (const line of lines) {
+      if (!line.trim()) { flushPara(); closeList(); continue; }
+      const isHeader = /^<h[1-6][^>]*>.*<\/h[1-6]>$/.test(line);
+      const isCodeBlockPlaceholder = /^\u0000CODEBLOCK\d+\u0000$/.test(line.trim());
+      const ulMatch = line.match(/^[-*]\s+(.+)$/);
+      const olMatch = line.match(/^\d+\.\s+(.+)$/);
+      if (isHeader || isCodeBlockPlaceholder) {
+        flushPara();
+        closeList();
+        out.push(line);
+      } else if (ulMatch || olMatch) {
+        flushPara();
+        const type = ulMatch ? 'ul' : 'ol';
+        if (listType !== type) {
+          closeList();
+          out.push(`<${type} style="margin:8px 0; padding-left:22px;">`);
+          listType = type;
+        }
+        out.push(`<li>${(ulMatch || olMatch)![1]}</li>`);
+      } else {
+        closeList();
+        paraBuf.push(line);
+      }
+    }
+    flushPara();
+    closeList();
+    working = out.join('\n');
+
+    // Splice the escaped, styled code blocks back in.
+    working = working.replace(/\u0000CODEBLOCK(\d+)\u0000/g, (_m, i: string) => codeBlocks[Number(i)]);
+    return working || `<p>${this.escapeHtml(raw)}</p>`;
+  }
+
+  /**
+   * Wires the "Copy" button on every code block produced by
+   * renderMarkdown(). Safe to call multiple times / with multiple blocks.
+   */
+  protected wireCodeCopyButtons(root: HTMLElement = this.outputPanel): void {
+    root.querySelectorAll('.copy-code-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const code = btn.closest('.code-block')?.querySelector('code')?.textContent || '';
+        navigator.clipboard.writeText(code);
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original || 'Copy'; }, 1500);
+      });
+    });
+  }
+
+  /** Small local helper so renderReadAloudBlock/renderMarkdown don't inject unescaped text into innerHTML. */
+  protected escapeHtml(s: string): string {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;

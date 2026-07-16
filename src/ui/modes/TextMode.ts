@@ -142,9 +142,10 @@ export class TextMode extends Mode {
       const output = result.finalOutput || 'No output';
       if (stage) {
         stage.innerHTML = `
-          <div class="result-text">${output}</div>
+          <div class="result-text">${this.renderMarkdown(output)}</div>
           ${this.renderReadAloudBlock(stripMarkdownForSpeech(output))}`;
         this.wireReadAloudControls();
+        this.wireCodeCopyButtons(stage);
       }
       this.kernel.getStore().getActions().addHistoryEntry({
         mode: 'text', prompt, result: output, resultType: 'text',

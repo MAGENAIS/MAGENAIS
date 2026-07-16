@@ -308,7 +308,7 @@ export class AudioMode extends Mode {
           // never starts automatically.
           stage.innerHTML = `
             <p class="field-label">Script (${result.lineCount} lines)</p>
-            <div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${result.script}</div></div>
+            <div class="doc-summary-block" style="margin-bottom:18px;"><div class="result-text">${this.renderMarkdown(result.script)}</div></div>
             <div class="result-actions" style="margin-bottom:18px;">
               <button class="ghost-btn" id="copyPodcastScriptBtn">Copy script</button>
             </div>
@@ -318,6 +318,7 @@ export class AudioMode extends Mode {
           });
           this.wireAudioControls(stage);
           this.wireBrowserSpeechControls(stage);
+          this.wireCodeCopyButtons(stage);
         }
         this.kernel.getStore().getActions().addHistoryEntry({
           mode: 'podcast', prompt, result: result.url || result.script, resultType: result.url ? 'audio' : 'text',

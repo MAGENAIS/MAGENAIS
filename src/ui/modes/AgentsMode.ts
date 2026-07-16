@@ -297,14 +297,12 @@ export class AgentsMode extends Mode {
           // coercion on a plain object literally produces the string
           // "[object Object]". Render text as text, and stringify
           // anything else properly instead of relying on that coercion.
-          const div = document.createElement('div');
           const textOutput = typeof nr.output === 'string'
             ? nr.output
             : (nr.output && typeof nr.output === 'object' && typeof (nr.output as any).url === 'string')
               ? (nr.output as any).url
               : JSON.stringify(nr.output, null, 2);
-          div.textContent = textOutput;
-          body = `<div class="result-text">${div.innerHTML}</div>`;
+          body = `<div class="result-text">${this.renderMarkdown(textOutput)}</div>`;
           // Only offer read-aloud for genuinely spoken-word-worthy text
           // output (not a bare URL and not raw JSON from a non-text step).
           if (typeof nr.output === 'string' && !nr.output.startsWith('http')) {
@@ -319,6 +317,7 @@ export class AgentsMode extends Mode {
       });
       if (stage) stage.innerHTML = html;
       this.wireReadAloudControls();
+      this.wireCodeCopyButtons(stage);
     } catch (err: any) {
       this.renderError(err);
     }
