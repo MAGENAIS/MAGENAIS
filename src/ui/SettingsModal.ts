@@ -10,6 +10,33 @@ import { Kernel } from '../core/Kernel';
 import { ProviderConfig, ProviderType } from '../providers/types';
 import { DEFAULT_PROVIDERS } from '../providers/defaultProviders';
 import { ProviderValidator } from '../config/ProviderValidator';
+import {
+  LocalModelTask,
+  getModelsForTask,
+  getSelectedModelId,
+  setSelectedModelId,
+  getModelById,
+} from '../providers/LocalModelRegistry';
+import { disposeModelPipelines } from '../providers/adapters/TransformersAdapter';
+
+/**
+ * Maps a ProviderConfig backed by TransformersAdapter to the
+ * (task, role) pair LocalModelRegistry indexes models by — based on
+ * `type`/`visionOnly`, not on the provider's `id`, so this still works for
+ * a duplicated/custom copy of a built-in transformers provider (whose id
+ * won't match 'builtin-transformers-*'). Returns null for any provider not
+ * backed by the 'transformers' adapter, since only that adapter reads from
+ * the registry.
+ */
+function localTaskForProvider(provider: ProviderConfig): { task: LocalModelTask; role?: 'caption' | 'ocr' } | null {
+  if (provider.adapterId !== 'transformers') return null;
+  if (provider.type === 'text' && provider.visionOnly) return { task: 'image-to-text', role: 'caption' };
+  if (provider.type === 'text') return { task: 'text-generation' };
+  if (provider.type === 'audio') return { task: 'automatic-speech-recognition' };
+  if (provider.type === 'music') return { task: 'text-to-audio' };
+  if (provider.type === 'embeddings') return { task: 'feature-extraction' };
+  return null;
+}
 
 const TYPE_FILTERS: Array<{ value: ProviderType | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -70,6 +97,7 @@ export class SettingsModal {
   open(): void {
     this.ensureDom();
     this.renderList();
+    this.renderLocalModelsList();
     document.getElementById('settingsModal')?.classList.add('open');
   }
 
@@ -97,6 +125,17 @@ export class SettingsModal {
         </div>
 
         <div id="providerList" style="display:flex; flex-direction:column; gap:8px; max-height:380px; overflow-y:auto;"></div>
+
+        <div class="divider"></div>
+        <details class="log-details" id="localModelsDetails">
+          <summary>Local models (Transformers.js, in-browser)</summary>
+          <div style="padding:10px 12px 12px; display:flex; flex-direction:column; gap:10px;">
+            <p class="hint">These run entirely on-device — no key, no signup. The main text/vision/audio/embeddings
+              models are edited from their provider row above ("Edit" → "Default model"); the three below are
+              sub-tasks that share a provider with something else, so they're configured here instead.</p>
+            <div id="localModelsList" style="display:flex; flex-direction:column; gap:10px;"></div>
+          </div>
+        </details>
 
         <div class="divider"></div>
         <button class="ghost-btn" id="addProviderBtn" style="width:100%;">+ Add custom provider</button>
@@ -250,10 +289,68 @@ export class SettingsModal {
     });
   }
 
+  /**
+   * Renders the three Transformers.js sub-task pickers (summarization,
+   * translation, OCR) that don't have their own ProviderConfig row — see
+   * localTaskForProvider's doc comment for why those four DO get one and
+   * these three don't. Each selection is read/written straight through
+   * LocalModelRegistry's own localStorage-backed storage, independent of
+   * ProviderManager, since there's no provider row to persist it on.
+   */
+  private renderLocalModelsList(): void {
+    const list = document.getElementById('localModelsList');
+    if (!list) return;
+
+    // OCR shares the 'image-to-text' transformers.js task with captioning —
+    // captioning's default lives on the builtin-transformers-vision
+    // provider row instead (see localTaskForProvider), so only OCR needs a
+    // row here.
+    const rows: Array<{ label: string; task: LocalModelTask; role?: 'caption' | 'ocr' }> = [
+      { label: 'Summarization (used by Documents/Research when summarizing text)', task: 'summarization' },
+      { label: 'Translation (English source only, see model notes)', task: 'translation' },
+      { label: 'OCR (reading text in images, used by Vision)', task: 'image-to-text', role: 'ocr' },
+    ];
+
+    list.innerHTML = '';
+    rows.forEach(({ label, task, role }) => {
+      const options = getModelsForTask(task, role);
+      if (options.length === 0) return;
+      const selected = getSelectedModelId(task, role);
+
+      const row = document.createElement('div');
+      row.className = 'field';
+      row.innerHTML = `
+        <label class="field-label">${label}</label>
+        <select data-task="${task}" ${role ? `data-role="${role}"` : ''}>
+          ${options.map(m => `<option value="${escapeHtml(m.id)}" ${m.id === selected ? 'selected' : ''}>${escapeHtml(m.displayName)}${m.recommended ? ' (recommended)' : ''}</option>`).join('')}
+        </select>
+        <p class="hint" data-meta style="margin-top:4px;"></p>
+      `;
+      const select = row.querySelector('select') as HTMLSelectElement;
+      const meta = row.querySelector('[data-meta]') as HTMLElement;
+      const updateMeta = () => {
+        const def = getModelById(select.value);
+        meta.textContent = def
+          ? `~${def.downloadSizeMB}MB download · ~${def.ramRequirementMB}MB RAM · ${def.quantization}${def.notes ? ` — ${def.notes}` : ''}`
+          : '';
+      };
+      updateMeta();
+      select.addEventListener('change', () => {
+        const previous = selected;
+        setSelectedModelId(task, select.value, role);
+        updateMeta();
+        if (previous && previous !== select.value) disposeModelPipelines(previous);
+      });
+      list.appendChild(row);
+    });
+  }
+
   /** Full field-by-field provider editor — used for both "Edit" and "Add custom provider". */
   private openEditor(provider: ProviderConfig, isNew: boolean): void {
     let modal = document.getElementById('providerEditModal');
     if (modal) modal.remove();
+
+    const localTask = localTaskForProvider(provider);
 
     modal = document.createElement('div');
     modal.className = 'modal-backdrop';
@@ -311,8 +408,13 @@ export class SettingsModal {
         </div>
         <div class="field-row">
           <div class="field">
-            <label class="field-label">Default model</label>
-            <input type="text" id="pe-defaultModel" value="${escapeHtml(provider.defaultModel || '')}">
+            <label class="field-label">Default model${localTask ? ' <span class="opt">from the Local Model Registry</span>' : ''}</label>
+            ${localTask
+              ? `<select id="pe-defaultModel">
+                  ${getModelsForTask(localTask.task, localTask.role).map(m => `<option value="${escapeHtml(m.id)}" ${(provider.defaultModel || '') === m.id ? 'selected' : ''}>${escapeHtml(m.displayName)}${m.recommended ? ' (recommended)' : ''}</option>`).join('')}
+                </select>
+                <p class="hint" id="pe-defaultModel-meta" style="margin-top:4px;"></p>`
+              : `<input type="text" id="pe-defaultModel" value="${escapeHtml(provider.defaultModel || '')}">`}
           </div>
           <div class="field">
             <label class="field-label">Timeout (ms)</label>
@@ -337,6 +439,26 @@ export class SettingsModal {
     m.querySelector('#closeProviderEdit')?.addEventListener('click', () => m.remove());
     m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
 
+    if (localTask) {
+      const select = m.querySelector('#pe-defaultModel') as HTMLSelectElement | null;
+      const meta = m.querySelector('#pe-defaultModel-meta') as HTMLElement | null;
+      const previousModelId = provider.defaultModel;
+      const updateMeta = () => {
+        if (!select || !meta) return;
+        const def = getModelById(select.value);
+        meta.textContent = def
+          ? `~${def.downloadSizeMB}MB download · ~${def.ramRequirementMB}MB RAM · ${def.quantization} · ${def.backendCompatibility === 'webgpu' ? 'WebGPU required' : def.backendCompatibility === 'both' ? 'WebGPU or WASM/CPU' : 'WASM/CPU'}${def.notes ? ` — ${def.notes}` : ''}`
+          : '';
+      };
+      updateMeta();
+      select?.addEventListener('change', () => {
+        updateMeta();
+        if (previousModelId && previousModelId !== select?.value) {
+          disposeModelPipelines(previousModelId);
+        }
+      });
+    }
+
     m.querySelector('#saveProviderBtn')?.addEventListener('click', () => {
       const authType = (document.getElementById('pe-authType') as HTMLSelectElement).value as ProviderConfig['authType'];
       const authFieldName = (document.getElementById('pe-authFieldName') as HTMLInputElement).value.trim();
@@ -351,7 +473,7 @@ export class SettingsModal {
         authType,
         authHeaderName: authType === 'header' || authType === 'bearer' ? authFieldName : provider.authHeaderName,
         authQueryParam: authType === 'query' ? authFieldName : provider.authQueryParam,
-        defaultModel: (document.getElementById('pe-defaultModel') as HTMLInputElement).value.trim() || undefined,
+        defaultModel: (document.getElementById('pe-defaultModel') as HTMLInputElement | HTMLSelectElement).value.trim() || undefined,
         timeoutMs: parseInt((document.getElementById('pe-timeoutMs') as HTMLInputElement).value, 10) || 30000,
         noKeyNeeded: (document.getElementById('pe-noKeyNeeded') as HTMLInputElement).checked,
         notes: (document.getElementById('pe-notes') as HTMLTextAreaElement).value.trim() || undefined,

@@ -7,6 +7,58 @@ import { Logger } from '../../core/Logger';
 import { ProviderValidator } from '../../config/ProviderValidator';
 import { ProviderAttempt, formatProviderReport, formatAllFailedMessage } from '../ProviderReport';
 
+// ---------------------------------------------------------------------------
+// PHASE 3a — Offline mode detection.
+// ---------------------------------------------------------------------------
+// `navigator.onLine` is a real (if imperfect — see caveat below) signal for
+// whether the device currently has any network connectivity at all. When
+// it's false, there is no point racing cloud providers that are certain to
+// fail one by one (each burning up to its own timeoutMs first) before
+// falling through to whatever local/offline-capable provider would have
+// answered immediately anyway — this skips straight to those instead.
+//
+// Adapters in this set run entirely on-device and need no network request
+// to do their job: 'transformers' (ONNX Runtime Web/Transformers.js),
+// 'webllm' (WebGPU, downloads once then runs fully offline), 'ollama'
+// (talks to localhost, not the internet — still reachable with no WAN
+// connectivity), 'browser-speech' (the Web Speech API — the synthesis half
+// runs on-device on every major browser; recognition can vary by browser
+// but degrades gracefully to an error if it also needs network it doesn't
+// have), and 'internal-fallback' (KenBurnsFallbackAdapter — pure
+// Canvas/client-side, see that file).
+const OFFLINE_CAPABLE_ADAPTERS = new Set(['transformers', 'webllm', 'ollama', 'browser-speech', 'internal-fallback']);
+
+/**
+ * CAVEAT: `navigator.onLine` is a coarse, sometimes-wrong signal (it can
+ * read `true` on a captive portal with no real internet, or occasionally
+ * `false` behind unusual network configurations with working connectivity)
+ * — treated here as a fast, zero-cost hint to skip a doomed race, never as
+ * the sole gate on whether a call is attempted at all. See
+ * filterForConnectivity below: if this ever produces an empty candidate
+ * list, the unfiltered list is used instead, so a false "offline" reading
+ * degrades to "try everything, same as before" rather than a hard failure.
+ */
+export function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+/**
+ * Subscribes to the browser's online/offline events for UI components that
+ * want to reflect current connectivity live (e.g. an "Offline — using local
+ * models" status indicator). Returns an unsubscribe function.
+ */
+export function onConnectivityChange(handler: (offline: boolean) => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const onOnline = () => handler(false);
+  const onOffline = () => handler(true);
+  window.addEventListener('online', onOnline);
+  window.addEventListener('offline', onOffline);
+  return () => {
+    window.removeEventListener('online', onOnline);
+    window.removeEventListener('offline', onOffline);
+  };
+}
+
 export class ProviderManager {
   private registry: ProviderRegistry;
   private persistence: Persistence;
@@ -321,6 +373,26 @@ export class ProviderManager {
    * other provider error, so the chain always keeps moving no matter what
    * an individual adapter does internally.
    */
+  /**
+   * Narrows a candidate list to offline-capable providers when the device
+   * currently has no network connectivity — see the isOffline()/
+   * OFFLINE_CAPABLE_ADAPTERS doc comments above for what "offline-capable"
+   * means and why `navigator.onLine` is only ever a hint, not a hard gate:
+   * if narrowing would leave zero candidates, the original list is
+   * returned unfiltered instead (try everything, same as being online,
+   * rather than a guaranteed failure from a possibly-wrong reading).
+   */
+  private filterForConnectivity(
+    candidates: ProviderConfig[],
+    log?: (message: string, level?: 'info' | 'warn' | 'error') => void
+  ): ProviderConfig[] {
+    if (!isOffline()) return candidates;
+    const offlineOnly = candidates.filter(p => OFFLINE_CAPABLE_ADAPTERS.has(p.adapterId));
+    if (offlineOnly.length === 0) return candidates;
+    log?.('No internet connection detected — running in Offline Mode using local providers only (Local Transformers/WebLLM/Ollama/on-device speech).', 'info');
+    return offlineOnly;
+  }
+
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: string): Promise<T> {
     const bounded = Math.max(1000, timeoutMs || 30000); // never allow an effectively-zero/undefined timeout to fire instantly
     return new Promise<T>((resolve, reject) => {
@@ -341,15 +413,18 @@ export class ProviderManager {
     options: Record<string, any> = {},
     log?: (message: string, level?: 'info' | 'warn' | 'error') => void
   ): Promise<any> {
-    const candidates = router
-      .getSortedProviders(type)
-      .filter(p => p.noKeyNeeded || !!p.apiKey)
-      // A provider can be registered under type:'text' purely so
-      // callVision() can find it (see the `visionOnly` doc comment in
-      // types.ts) — it has no ability to answer a genuine text-generation
-      // request, so exclude it here to avoid a guaranteed, noisy failure
-      // eating a slot (and a real timeout window) in the fallback chain.
-      .filter(p => !p.visionOnly);
+    const candidates = this.filterForConnectivity(
+      router
+        .getSortedProviders(type)
+        .filter(p => p.noKeyNeeded || !!p.apiKey)
+        // A provider can be registered under type:'text' purely so
+        // callVision() can find it (see the `visionOnly` doc comment in
+        // types.ts) — it has no ability to answer a genuine text-generation
+        // request, so exclude it here to avoid a guaranteed, noisy failure
+        // eating a slot (and a real timeout window) in the fallback chain.
+        .filter(p => !p.visionOnly),
+      log
+    );
 
     if (candidates.length === 0) {
       throw new Error(
@@ -544,17 +619,20 @@ export class ProviderManager {
     // builtin-transformers-vision in defaultProviders.ts, which is what
     // guarantees this list is never empty on a fresh install.
     const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'transformers', 'ollama'];
-    const candidates = router
-      .getSortedProviders('text')
-      .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
-      // 'transformers' now backs two distinct provider entries sharing
-      // this one adapterId — a genuine text-generation one (see
-      // builtin-transformers-text) and an image-captioning one (see
-      // builtin-transformers-vision, visionOnly:true). Only the latter
-      // belongs here; including the text entry would try to run its
-      // chat model through an image-to-text pipeline and guarantee a
-      // failure on every single Vision request.
-      .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true);
+    const candidates = this.filterForConnectivity(
+      router
+        .getSortedProviders('text')
+        .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
+        // 'transformers' now backs two distinct provider entries sharing
+        // this one adapterId — a genuine text-generation one (see
+        // builtin-transformers-text) and an image-captioning one (see
+        // builtin-transformers-vision, visionOnly:true). Only the latter
+        // belongs here; including the text entry would try to run its
+        // chat model through an image-to-text pipeline and guarantee a
+        // failure on every single Vision request.
+        .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true),
+      log
+    );
 
     if (candidates.length === 0) {
       // Diagnose the actual cause instead of one generic message — in

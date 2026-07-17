@@ -5,6 +5,7 @@
  */
 
 import { ProviderConfig } from './types';
+import { getRegistryDefaultId } from './LocalModelRegistry';
 
 export const DEFAULT_PROVIDERS: ProviderConfig[] = [
   // ============================================================
@@ -94,7 +95,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'transformers',
     baseUrl: 'internal:transformers-text',
     authType: 'none',
-    defaultModel: 'HuggingFaceTB/SmolLM2-360M-Instruct',
+    defaultModel: getRegistryDefaultId('text-generation') || 'HuggingFaceTB/SmolLM2-360M-Instruct',
     priority: 15,
     enabled: true,
     noKeyNeeded: true,
@@ -124,7 +125,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'transformers',
     baseUrl: 'browser:transformers',
     authType: 'none',
-    defaultModel: 'Xenova/vit-gpt2-image-captioning',
+    defaultModel: getRegistryDefaultId('image-to-text', 'caption') || 'Xenova/vit-gpt2-image-captioning',
     priority: 40,
     enabled: true,
     noKeyNeeded: true,
@@ -142,7 +143,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'transformers',
     baseUrl: 'browser:transformers',
     authType: 'none',
-    defaultModel: 'Xenova/whisper-tiny.en',
+    defaultModel: getRegistryDefaultId('automatic-speech-recognition') || 'Xenova/whisper-tiny.en',
     priority: 5,
     enabled: true,
     noKeyNeeded: true,
@@ -159,7 +160,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'transformers',
     baseUrl: 'browser:transformers',
     authType: 'none',
-    defaultModel: 'Xenova/musicgen-small',
+    defaultModel: getRegistryDefaultId('text-to-audio') || 'Xenova/musicgen-small',
     priority: 40,
     enabled: true,
     noKeyNeeded: true,
@@ -176,7 +177,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'transformers',
     baseUrl: 'internal:transformers-embeddings',
     authType: 'none',
-    defaultModel: 'Xenova/all-MiniLM-L6-v2',
+    defaultModel: getRegistryDefaultId('feature-extraction') || 'Xenova/all-MiniLM-L6-v2',
     priority: 10,
     enabled: true,
     noKeyNeeded: true,

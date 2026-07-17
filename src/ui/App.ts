@@ -12,6 +12,7 @@ import { EventBus } from '../core/EventBus';
 import { Store } from '../core/state/Store';
 import { Kernel } from '../core/Kernel';
 import { Logger } from '../core/Logger';
+import { isOffline, onConnectivityChange } from '../providers/registry/Manager';
 
 // Import all mode implementations
 import { Mode } from './modes/Mode';
@@ -139,6 +140,19 @@ export class App {
 
     // Update status bar
     this.updateStatus('Ready', 'MAGENAIS v2.1');
+
+    // PHASE 3a — Offline mode indicator: reflects live browser connectivity
+    // (see isOffline()/onConnectivityChange() in providers/registry/Manager.ts)
+    // so switching Wi-Fi off/on mid-session updates this without a reload,
+    // matching the requirement that offline routing be visible, not silent.
+    this.updateConnectivityBadge(isOffline());
+    onConnectivityChange((offline) => this.updateConnectivityBadge(offline));
+  }
+
+  private updateConnectivityBadge(offline: boolean): void {
+    const badge = document.getElementById('connectivityBadge');
+    if (!badge) return;
+    badge.hidden = !offline;
   }
 
   private getAppShellMarkup(): string {
@@ -183,6 +197,7 @@ export class App {
       <footer class="statusbar">
         <img class="statusbar-banner" src="/branding/footer-banner.png" alt="" aria-hidden="true">
         <span id="footerLeft">Ready</span>
+        <span id="connectivityBadge" class="connectivity-badge" hidden>&#9888; Offline — using local providers</span>
         <span id="footerRight">MAGENAIS v2.1</span>
       </footer>
     `;

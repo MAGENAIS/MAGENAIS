@@ -384,6 +384,10 @@ footer.statusbar span {
   -webkit-backdrop-filter: blur(6px);
   color: #fff;
 }
+#connectivityBadge {
+  color: var(--amber);
+  border: 1px solid var(--amber);
+}
 
 /* Fields & forms */
 label.field-label {
