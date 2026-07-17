@@ -56,7 +56,7 @@ export class ResearchMode extends Mode {
     const limitPerSource = parseInt((document.getElementById('researchCount') as HTMLInputElement)?.value || '6', 10);
 
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Gathering sources…</div>';
+    if (stage) this.renderLoading('Gathering sources…');
 
     const workflow = {
       id: 'research-' + Date.now(),

@@ -109,7 +109,7 @@ export class TextMode extends Mode {
     // For now, just show a busy state and use the kernel's workflow engine.
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
     if (stage) {
-      stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Generating...</div>';
+      this.renderLoading('Generating...');
     }
 
     try {

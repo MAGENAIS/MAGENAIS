@@ -30,7 +30,7 @@ export class CodingMode extends Mode {
     const language = (document.getElementById('codingLanguage') as HTMLSelectElement)?.value || 'JavaScript';
 
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Writing code…</div>';
+    if (stage) this.renderLoading('Writing code…');
 
     const workflow = {
       id: 'coding-' + Date.now(),

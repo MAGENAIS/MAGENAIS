@@ -128,7 +128,7 @@ export class VisionMode extends Mode {
     const prompt = (document.getElementById('promptInput') as HTMLTextAreaElement)?.value.trim();
     const speak = (document.getElementById('visionSpeakToggle') as HTMLInputElement)?.checked;
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Analyzing image…</div>';
+    if (stage) this.renderLoading('Analyzing image…');
 
     const workflow = {
       id: 'vision-' + Date.now(),

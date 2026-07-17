@@ -226,7 +226,7 @@ export class AgentsMode extends Mode {
     if (!this.pipelineSteps.length) { alert('Add at least one pipeline step.'); return; }
 
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Running pipeline...</div>';
+    if (stage) this.renderLoading('Running pipeline...');
 
     try {
       // Build a workflow that executes the pipeline sequentially

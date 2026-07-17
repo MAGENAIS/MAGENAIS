@@ -9,6 +9,7 @@ export class HealthMonitor {
   private eventBus: EventBus;
   private checkInterval: number = 60000; // 1 minute
   private intervalId: number | null = null;
+  private onVisibilityChange: (() => void) | null = null;
 
   constructor(registry: ProviderRegistry, eventBus: EventBus) {
     this.registry = registry;
@@ -24,10 +25,30 @@ export class HealthMonitor {
       return;
     }
     this.checkInterval = intervalMs || this.checkInterval;
-    this.intervalId = window.setInterval(() => this.checkAll(), this.checkInterval);
+    this.intervalId = window.setInterval(() => {
+      // PHASE 5: skip this tick entirely while the tab is hidden — see the
+      // visibilitychange listener below for what happens when it becomes
+      // visible again. document may not have the Page Visibility API in
+      // very old environments; `?? false` just means "always check" there.
+      if (document?.hidden) {
+        Logger.debug('HealthMonitor: tab is hidden, skipping this check cycle.');
+        return;
+      }
+      this.checkAll();
+    }, this.checkInterval);
     Logger.info(`HealthMonitor started (interval ${this.checkInterval}ms).`);
     // Do an immediate check
     this.checkAll();
+
+    if (typeof document !== 'undefined') {
+      this.onVisibilityChange = () => {
+        if (!document.hidden) {
+          Logger.debug('HealthMonitor: tab became visible again, running an immediate check.');
+          this.checkAll();
+        }
+      };
+      document.addEventListener('visibilitychange', this.onVisibilityChange);
+    }
   }
 
   /**
@@ -39,6 +60,10 @@ export class HealthMonitor {
       this.intervalId = null;
       Logger.info('HealthMonitor stopped.');
     }
+    if (this.onVisibilityChange) {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      this.onVisibilityChange = null;
+    }
   }
 
   /**
@@ -47,13 +72,14 @@ export class HealthMonitor {
   async checkAll(): Promise<void> {
     const providers = this.registry.getProviders(undefined, true);
     Logger.debug(`HealthMonitor: checking ${providers.length} providers.`);
-    for (const p of providers) {
+    const toCheck = providers.filter((p) => {
       if (isInCooldown(p.health)) {
         Logger.debug(`HealthMonitor: skipping '${p.name}' — cooling down (${cooldownRemainingLabel(p.health)} left).`);
-        continue;
+        return false;
       }
-      await this.checkProvider(p);
-    }
+      return true;
+    });
+    await Promise.allSettled(toCheck.map((p) => this.checkProvider(p)));
   }
 
   /**

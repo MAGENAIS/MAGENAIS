@@ -100,7 +100,7 @@ export class DataMode extends Mode {
     const colIdx = colSelect.value !== '' ? parseInt(colSelect.value, 10) : this.findFirstNumericColumn();
 
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Analyzing data...</div>';
+    if (stage) this.renderLoading('Analyzing data...');
 
     try {
       // Compute stats and chart data (using legacy functions)

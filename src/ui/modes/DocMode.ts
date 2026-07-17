@@ -76,7 +76,7 @@ export class DocMode extends Mode {
     if (action === 'qa' && !question) { alert('Enter your question.'); return; }
 
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Extracting text…</div>';
+    if (stage) this.renderLoading('Extracting text…');
 
     const workflow = {
       id: 'doc-' + Date.now(),

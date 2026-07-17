@@ -107,10 +107,26 @@ export abstract class Mode {
    * failing twice across two retry passes) collapse into one line with a
    * "×N" counter instead of duplicating the whole wall of text.
    */
+  /**
+   * Recognizes a download-progress log line so appendLog can update it in
+   * place instead of appending a new line on every tick — see
+   * TransformersAdapter's download reporting, the only place that
+   * currently emits messages in this shape. Deliberately keyed off a
+   * marker (⬇) this codebase controls, rather than any quoted-filename
+   * message in general, so an unrelated message that happens to mention a
+   * quoted filename (e.g. an error) never gets silently collapsed into a
+   * previous progress line.
+   */
+  private progressKeyFor(message: string): string | null {
+    const match = message.match(/^Transformers\.js ⬇ "([^"]+)"/);
+    return match ? match[1] : null;
+  }
+
   protected appendLog(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
     const log = this.outputPanel.querySelector('#logPanel') as HTMLElement | null;
     if (!log) return;
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const progressKey = this.progressKeyFor(message);
 
     const lastLine = log.lastElementChild as HTMLElement | null;
     if (lastLine && lastLine.dataset.rawMessage === message && lastLine.dataset.level === level) {
@@ -129,12 +145,23 @@ export abstract class Mode {
       }
       const t = lastLine.querySelector('.t');
       if (t) t.textContent = time;
+    } else if (progressKey && lastLine && lastLine.dataset.progressKey === progressKey && lastLine.dataset.level === level) {
+      // A new tick for the SAME in-progress download — update the
+      // existing line's text/timestamp in place. This is what keeps a
+      // multi-hundred-MB model download to one live-updating line instead
+      // of a new line every few percent.
+      lastLine.dataset.rawMessage = message;
+      const msgEl = lastLine.querySelector('.msg');
+      if (msgEl) msgEl.textContent = message;
+      const t = lastLine.querySelector('.t');
+      if (t) t.textContent = time;
     } else {
       const line = document.createElement('div');
       line.className = `log-line ${level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'ok'}`;
       line.dataset.rawMessage = message;
       line.dataset.level = level;
       line.dataset.count = '1';
+      if (progressKey) line.dataset.progressKey = progressKey;
       const t = document.createElement('span');
       t.className = 't';
       t.textContent = time;
@@ -158,6 +185,12 @@ export abstract class Mode {
     if (details && (level === 'error' || level === 'warn')) {
       details.open = true;
     }
+    // Auto-scroll: #logPanel has its own max-height:320px + overflow-y:auto
+    // (see layout.css) — without this, a long-running multi-step operation
+    // (Research/Agents/podcast generation, etc.) with the report open just
+    // kept appending lines below the visible window, with nothing bringing
+    // the newest one into view short of the person manually scrolling.
+    log.scrollTop = log.scrollHeight;
   }
 
   /** Clears the log panel — call at the start of a new generation. */
@@ -196,10 +229,31 @@ export abstract class Mode {
 
   /**
    * Helper to render output.
+   *
+   * Auto-scroll: `.output` (this.outputPanel) can be scrolled down from a
+   * previous result — e.g. the person had scrolled past a long article to
+   * read the pipeline report below it. Generating something new should
+   * bring them back to the top of the new result rather than leaving them
+   * looking at whatever scroll position a completely different, now-gone
+   * piece of content happened to leave them at.
    */
   protected renderOutput(html: string): void {
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
     if (stage) stage.innerHTML = html;
+    this.outputPanel.scrollTop = 0;
+  }
+
+  /**
+   * Shared "generating…" state — replaces the identical
+   * `<div class="spinner"></div><div class="empty-text">…</div>` markup
+   * that used to be duplicated in every single mode file (11 copies, one
+   * per tab), each independently querying `.stage`. One shared
+   * implementation means the loading state can't drift out of sync
+   * between tabs and there's one place to change it.
+   */
+  protected renderLoading(message: string): void {
+    const stage = this.outputPanel.querySelector('.stage') as HTMLElement | null;
+    if (stage) stage.innerHTML = `<div class="spinner"></div><div class="empty-text">${this.escapeHtml(message)}</div>`;
   }
 
   /**
@@ -408,6 +462,18 @@ export abstract class Mode {
       const level = Math.min(hashes.length, 6);
       return `<h${level} style="margin:14px 0 8px;">${text}</h${level}>`;
     });
+    // Images: ![alt](url) — MUST run before the plain-link regex below,
+    // since otherwise that regex still matches the [alt](url) portion and
+    // leaves a stray "!" in front of an <a> tag instead of an <img>. Gives
+    // every mode's markdown rendering (Research citations, Data Analytics
+    // chart references, etc.) inline image support, not just the
+    // dedicated Image/Video modes' own .result-media wrapper — the same
+    // max-width:100% protection is applied inline here since this output
+    // isn't always inside a .result-media block.
+    working = working.replace(
+      /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<img src="$2" alt="$1" loading="lazy" style="display:block; max-width:100%; height:auto; margin:10px 0; border-radius:var(--radius); border:1px solid var(--line-bright);">'
+    );
     // Links: [text](url) — escaped text/url already came through escapeHtml
     // above, so this only adds the anchor tag around already-safe content.
     working = working.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
@@ -422,6 +488,16 @@ export abstract class Mode {
     // code-block placeholder, or a list item — immediately flushes and
     // closes whatever paragraph/list was open, instead of being pulled
     // into it.)
+    // Single-pass, line-based block builder for headers/lists/tables/
+    // code-blocks/paragraphs. (An earlier version of this ran lists and
+    // paragraph-wrapping as two separate passes; any list, header, or code
+    // block that wasn't already isolated by a blank line — e.g.
+    // "Intro:\n- item one" — ended up nested INSIDE a <p>, with stray <br>
+    // tags forced between list items. Building every block type in one
+    // left-to-right pass over the lines avoids that: any block-level line
+    // — an <h#>, a restored code-block placeholder, a list item, or a
+    // table row — immediately flushes and closes whatever paragraph/list
+    // was open, instead of being pulled into it.)
     const lines = working.split('\n');
     const out: string[] = [];
     let listType: 'ul' | 'ol' | null = null;
@@ -435,8 +511,38 @@ export abstract class Mode {
     const closeList = () => {
       if (listType) { out.push(`</${listType}>`); listType = null; }
     };
-    for (const line of lines) {
-      if (!line.trim()) { flushPara(); closeList(); continue; }
+    // GFM-style table support: a `| Header | Header |` row immediately
+    // followed by a `|---|:--:|` separator row starts a table; every
+    // subsequent `|...|` row is a body row until a non-table line ends it.
+    const isTableRow = (l: string) => l.trim().startsWith('|') && l.trim().endsWith('|') && l.trim().length > 1;
+    const isTableSeparatorRow = (l: string) => /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?$/.test(l.trim());
+    const splitTableRow = (l: string): string[] => {
+      let t = l.trim().slice(1, -1); // strip leading/trailing pipe
+      return t.split('|').map((c) => c.trim());
+    };
+
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { flushPara(); closeList(); i++; continue; }
+
+      if (isTableRow(line) && lines[i + 1] !== undefined && isTableSeparatorRow(lines[i + 1])) {
+        flushPara();
+        closeList();
+        const headerCells = splitTableRow(line);
+        out.push('<div style="overflow-x:auto; margin:10px 0;"><table style="border-collapse:collapse; width:100%; font-size:13px;"><thead><tr>');
+        out.push(headerCells.map((c) => `<th style="text-align:left; padding:6px 10px; border-bottom:2px solid var(--line-bright); white-space:nowrap;">${c}</th>`).join(''));
+        out.push('</tr></thead><tbody>');
+        i += 2; // skip the header row and the |---|---| separator row
+        while (i < lines.length && isTableRow(lines[i])) {
+          const cells = splitTableRow(lines[i]);
+          out.push('<tr>' + cells.map((c) => `<td style="padding:6px 10px; border-bottom:1px solid var(--line);">${c}</td>`).join('') + '</tr>');
+          i++;
+        }
+        out.push('</tbody></table></div>');
+        continue; // i is already positioned at the first line after the table
+      }
+
       const isHeader = /^<h[1-6][^>]*>.*<\/h[1-6]>$/.test(line);
       const isCodeBlockPlaceholder = /^\u0000CODEBLOCK\d+\u0000$/.test(line.trim());
       const ulMatch = line.match(/^[-*]\s+(.+)$/);
@@ -458,6 +564,7 @@ export abstract class Mode {
         closeList();
         paraBuf.push(line);
       }
+      i++;
     }
     flushPara();
     closeList();

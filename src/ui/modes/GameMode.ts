@@ -61,7 +61,7 @@ export class GameMode extends Mode {
     const complexity = (document.querySelector('#gameComplexityChips .chip.active') as HTMLElement)?.dataset.val || 'standard';
 
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = `<div class="spinner"></div><div class="empty-text">${iterate ? 'Applying your change…' : 'Stage 1/2 — building scaffolding…'}</div>`;
+    if (stage) this.renderLoading(iterate ? 'Applying your change…' : 'Stage 1/2 — building scaffolding…');
 
     const workflow = {
       id: 'game-' + Date.now(),

@@ -189,27 +189,90 @@ async function getPipeline(
   let p = pipelineCache.get(key);
   if (!p) {
     log?.(`Transformers.js: loading "${model}" for ${task} (${device === 'webgpu' ? 'WebGPU-accelerated' : 'WASM/CPU'})… first run downloads and caches the model, later runs reuse it instantly.`, 'info');
-    let lastPct = -1;
+
+    // PHASE 5 — download manager UX (progress/speed/ETA/cache status).
+    // Per-file trackers so a multi-file model (tokenizer.json, config.json,
+    // the ONNX weights, ...) reports each file's own speed/ETA rather than
+    // one number blurred across all of them. `smoothedBps` is an
+    // exponential moving average (alpha 0.3) over consecutive callback
+    // ticks, not a raw loaded-delta/time-delta reading — individual fetch
+    // chunks arrive in bursts, so an unsmoothed instantaneous rate jumps
+    // around too much to be readable at a glance.
+    const fileTrackers = new Map<string, { lastLoaded: number; lastTs: number; smoothedBps: number }>();
+    const lastEmitAt = new Map<string, number>(); // throttle: at most one DOM update per ~250ms per file
+    let anyBytesDownloaded = false;
+
     p = loadTransformersModule(log).then(({ pipeline }) =>
       pipeline(task, model, {
         device,
         // Falls back to wasm automatically inside the library too if a
         // webgpu op isn't implemented for this model — belt and suspenders.
         progress_callback: (progress: any) => {
-          if (progress?.status === 'progress' && typeof progress.progress === 'number') {
-            const pct = Math.round(progress.progress);
-            if (pct !== lastPct && pct % 20 === 0) {
-              lastPct = pct;
-              log?.(`Transformers.js: downloading "${progress.file || model}" — ${pct}%`, 'info');
+          const file = progress?.file || model;
+          if (progress?.status === 'progress' && typeof progress.loaded === 'number' && typeof progress.total === 'number' && progress.total > 0) {
+            anyBytesDownloaded = true;
+            const now = Date.now();
+            const isDone = progress.loaded >= progress.total;
+            let tracker = fileTrackers.get(file);
+            if (!tracker) {
+              tracker = { lastLoaded: 0, lastTs: now, smoothedBps: 0 };
+              fileTrackers.set(file, tracker);
             }
+            const dt = (now - tracker.lastTs) / 1000;
+            if (dt > 0.05) {
+              const instantBps = Math.max(0, (progress.loaded - tracker.lastLoaded) / dt);
+              tracker.smoothedBps = tracker.smoothedBps === 0 ? instantBps : tracker.smoothedBps * 0.7 + instantBps * 0.3;
+              tracker.lastLoaded = progress.loaded;
+              tracker.lastTs = now;
+            }
+
+            if (!isDone && now - (lastEmitAt.get(file) || 0) < 250) return; // throttle mid-download ticks
+            lastEmitAt.set(file, now);
+
+            const pct = Math.round((progress.loaded / progress.total) * 100);
+            const speedLabel = tracker.smoothedBps > 0 ? `${formatBytes(tracker.smoothedBps)}/s` : 'starting…';
+            const remaining = progress.total - progress.loaded;
+            const etaSeconds = tracker.smoothedBps > 0 ? remaining / tracker.smoothedBps : null;
+            const etaLabel = etaSeconds !== null && isFinite(etaSeconds) && !isDone ? ` · ETA ${formatDuration(etaSeconds)}` : '';
+            log?.(`Transformers.js ⬇ "${file}" — ${pct}% (${formatBytes(progress.loaded)} / ${formatBytes(progress.total)}) · ${speedLabel}${etaLabel}`, 'info');
+          } else if (progress?.status === 'done' && fileTrackers.has(file)) {
+            // Only announce "done" for a file that actually had bytes
+            // tracked above — a 'done' with no preceding 'progress' at all
+            // means it was served straight from cache (see the aggregate
+            // cache-hit message below instead).
+            const tracker = fileTrackers.get(file)!;
+            log?.(`Transformers.js ⬇ "${file}" — done (${formatBytes(tracker.lastLoaded)})`, 'info');
           }
         },
       })
-    );
+    ).then((pipe) => {
+      log?.(
+        anyBytesDownloaded
+          ? `Transformers.js: "${model}" ready.`
+          : `Transformers.js: "${model}" loaded from cache — instant, no download needed.`,
+        'info'
+      );
+      return pipe;
+    });
     p.catch(() => pipelineCache.delete(key)); // allow retry on failure
     pipelineCache.set(key, p);
   }
   return p;
+}
+
+/** Formats a byte count as a human-readable size — used by the download-progress reporting above. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${Math.round(bytes)}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+}
+
+/** Formats a duration in seconds as a human-readable ETA — used by the download-progress reporting above. */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
 /**

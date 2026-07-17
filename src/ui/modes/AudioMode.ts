@@ -193,7 +193,7 @@ export class AudioMode extends Mode {
     // Build workflow based on active mode
     let workflow;
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Generating audio...</div>';
+    if (stage) this.renderLoading('Generating audio...');
 
     try {
       if (this.activeMode === 'speech') {

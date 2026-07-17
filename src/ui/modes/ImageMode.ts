@@ -103,7 +103,7 @@ export class ImageMode extends Mode {
     };
 
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
-    if (stage) stage.innerHTML = '<div class="spinner"></div><div class="empty-text">Generating image...</div>';
+    if (stage) this.renderLoading('Generating image...');
 
     try {
       const result = await this.kernel.getWorkflowEngine().execute(workflow, { prompt: finalPrompt }, (msg, level) => this.appendLog(msg, level));
