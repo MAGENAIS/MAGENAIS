@@ -6,6 +6,7 @@ import { EventBus } from '../../core/EventBus';
 import { Logger } from '../../core/Logger';
 import { ProviderValidator } from '../../config/ProviderValidator';
 import { ProviderAttempt, formatProviderReport, formatAllFailedMessage } from '../ProviderReport';
+import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel } from '../HealthCooldown';
 
 // ---------------------------------------------------------------------------
 // PHASE 3a — Offline mode detection.
@@ -446,6 +447,7 @@ export class ProviderManager {
     // so an obviously-unusable provider (no key, no adapter, etc.) never
     // occupies a race slot or delays the ones that actually can run.
     const runnable: { provider: ProviderConfig; adapter: import('../types').Adapter }[] = [];
+    const coolingDown: { provider: ProviderConfig; adapter: import('../types').Adapter }[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
       const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
@@ -455,7 +457,23 @@ export class ProviderManager {
         attempts.push({ name: provider.name, status: 'skipped', detail: reason });
         continue;
       }
+      // PHASE 3b: a provider that just failed from an auth/not-found/etc.
+      // error is certain to fail the exact same way again right now — skip
+      // it rather than burning a race slot (and up to its full timeoutMs)
+      // on a guaranteed repeat failure. See HealthCooldown.ts.
+      if (isInCooldown(provider.health)) {
+        const remaining = cooldownRemainingLabel(provider.health);
+        const reason = `cooling down (${remaining} left) after ${cooldownReasonLabel(provider.health!.failureCategory as any)}`;
+        log?.(`${provider.name}: skipped — ${reason}`, 'warn');
+        attempts.push({ name: provider.name, status: 'skipped', detail: reason });
+        coolingDown.push({ provider, adapter: adapter! });
+        continue;
+      }
       runnable.push({ provider, adapter: adapter! });
+    }
+    if (runnable.length === 0 && coolingDown.length > 0) {
+      log?.('Every otherwise-valid provider is cooling down from recent failures — trying them anyway since nothing else is available.', 'warn');
+      runnable.push(...coolingDown);
     }
 
     if (runnable.length === 0) {
@@ -660,6 +678,7 @@ export class ProviderManager {
 
     const attempts: ProviderAttempt[] = [];
     const runnable: { provider: ProviderConfig; adapter: import('../types').Adapter }[] = [];
+    const coolingDown: { provider: ProviderConfig; adapter: import('../types').Adapter }[] = [];
     for (const provider of candidates) {
       const adapter = this.registry.getAdapter(provider.adapterId);
       const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
@@ -669,7 +688,19 @@ export class ProviderManager {
         attempts.push({ name: provider.name, status: 'skipped', detail: reason });
         continue;
       }
+      if (isInCooldown(provider.health)) {
+        const remaining = cooldownRemainingLabel(provider.health);
+        const reason = `cooling down (${remaining} left) after ${cooldownReasonLabel(provider.health!.failureCategory as any)}`;
+        log?.(`${provider.name}: skipped — ${reason}`, 'warn');
+        attempts.push({ name: provider.name, status: 'skipped', detail: reason });
+        coolingDown.push({ provider, adapter: adapter! });
+        continue;
+      }
       runnable.push({ provider, adapter: adapter! });
+    }
+    if (runnable.length === 0 && coolingDown.length > 0) {
+      log?.('Every otherwise-valid vision provider is cooling down from recent failures — trying them anyway since nothing else is available.', 'warn');
+      runnable.push(...coolingDown);
     }
 
     if (runnable.length === 0) {

@@ -1,6 +1,7 @@
 import { ProviderConfig, ProviderType, Adapter, ProviderHealth } from '../types';
 import { EventBus } from '../../core/EventBus';
 import { Logger } from '../../core/Logger';
+import { classifyFailure, computeCooldownMs } from '../HealthCooldown';
 
 export class ProviderRegistry {
   private providers: Map<string, ProviderConfig> = new Map();
@@ -114,10 +115,33 @@ export class ProviderRegistry {
 
   /**
    * Update health information for a provider.
+   *
+   * PHASE 3b — failure cooldown/backoff (see HealthCooldown.ts): callers
+   * still just report what happened (`status`, `lastError`, etc.) exactly
+   * as before — this method is where that gets turned into an escalating
+   * cooldown, so every call site (Manager.ts's real request outcomes,
+   * Health.ts's periodic checks) gets consistent behavior for free instead
+   * of each having to reimplement backoff math. 'unhealthy' increments the
+   * consecutive-failure streak and (re)computes `cooldownUntil` from the
+   * classified failure category; any other status ('healthy', but also
+   * 'degraded'/'unknown' from a periodic check that didn't fail outright)
+   * resets the streak and clears any existing cooldown.
    */
   updateHealth(id: string, health: ProviderHealth): void {
     const p = this.providers.get(id);
     if (p) {
+      const previousFailureCount = p.health?.failureCount || 0;
+      if (health.status === 'unhealthy') {
+        const category = classifyFailure(health.lastError);
+        const failureCount = previousFailureCount + 1;
+        health.failureCount = failureCount;
+        health.failureCategory = category;
+        health.cooldownUntil = Date.now() + computeCooldownMs(category, failureCount);
+      } else {
+        health.failureCount = 0;
+        health.cooldownUntil = undefined;
+        health.failureCategory = undefined;
+      }
       p.health = health;
       // Also update success rate and latency from health check
       if (health.status === 'healthy') {

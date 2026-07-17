@@ -2,6 +2,7 @@ import { ProviderRegistry } from './registry/Registry';
 import { ProviderConfig, ProviderHealth } from './types';
 import { Logger } from '../core/Logger';
 import { EventBus } from '../core/EventBus';
+import { isInCooldown, cooldownRemainingLabel } from './HealthCooldown';
 
 export class HealthMonitor {
   private registry: ProviderRegistry;
@@ -47,6 +48,10 @@ export class HealthMonitor {
     const providers = this.registry.getProviders(undefined, true);
     Logger.debug(`HealthMonitor: checking ${providers.length} providers.`);
     for (const p of providers) {
+      if (isInCooldown(p.health)) {
+        Logger.debug(`HealthMonitor: skipping '${p.name}' — cooling down (${cooldownRemainingLabel(p.health)} left).`);
+        continue;
+      }
       await this.checkProvider(p);
     }
   }

@@ -18,6 +18,7 @@ import {
   getModelById,
 } from '../providers/LocalModelRegistry';
 import { disposeModelPipelines } from '../providers/adapters/TransformersAdapter';
+import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel } from '../providers/HealthCooldown';
 
 /**
  * Maps a ProviderConfig backed by TransformersAdapter to the
@@ -207,12 +208,15 @@ export class SettingsModal {
           ? '<span class="key-status set">key set</span>'
           : '<span class="key-status unset">no key set — add one below to activate</span>';
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
+      const cooldownBadge = isInCooldown(p.health)
+        ? ` · <span style="color:var(--rust);" title="Repeated failures — this provider is being skipped until it cools down, so it doesn't keep failing the same way on every request.">cooling down (${cooldownRemainingLabel(p.health)} left) — ${escapeHtml(cooldownReasonLabel(p.health!.failureCategory as any))}</span>`
+        : '';
 
       row.innerHTML = `
         <div class="provider-row-top">
           <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
             <span class="provider-name" style="color:${statusColor};">${escapeHtml(p.name)}</span>
-            <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}</span>
+            <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}${cooldownBadge}</span>
           </div>
           <label style="display:flex; align-items:center; gap:5px; cursor:pointer; flex-shrink:0;" title="${p.noKeyNeeded || p.isBuiltIn || p.apiKey ? 'Enable or disable this provider' : 'Enabled providers activate automatically once you add an API key below'}">
             <input type="checkbox" data-action="toggle" ${p.enabled ? 'checked' : ''} style="width:auto;">

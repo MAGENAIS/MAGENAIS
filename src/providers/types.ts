@@ -62,6 +62,12 @@ export interface ProviderHealth {
   lastCheck: number;
   lastError?: string;
   responseTime?: number;
+  /** Consecutive failures since the last success — reset to 0 on any success. See HealthCooldown.ts. */
+  failureCount?: number;
+  /** If set and in the future, ProviderManager/HealthMonitor skip this provider rather than retrying it. */
+  cooldownUntil?: number;
+  /** What kind of failure triggered the current cooldown, if any — see HealthCooldown.ts's FailureCategory. */
+  failureCategory?: string;
 }
 
 export interface ProviderScore {
