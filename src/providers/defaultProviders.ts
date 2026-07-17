@@ -541,6 +541,33 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     retries: 1,
   },
   {
+    id: 'preset-moonshot',
+    name: 'Moonshot AI (Kimi)',
+    type: 'text',
+    adapterId: 'openai-compatible',
+    baseUrl: 'https://api.moonshot.ai/v1',
+    authType: 'bearer',
+    defaultModel: 'kimi-k3',
+    priority: 14,
+    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    // PHASE 4 FIX: api.moonshot.ai does not send Access-Control-Allow-Origin,
+    // so a direct browser POST to /v1/chat/completions is blocked by CORS
+    // before it ever leaves the page (the exact "Failed to fetch" bug
+    // report this preset was added to fix). requiresServerProxy routes it
+    // through the local same-origin proxy instead — see the PHASE 4 doc
+    // comment on BaseAdapter.fetchWithRetry and server/proxyHandler.mjs.
+    // This is plain provider configuration, not Moonshot-specific code:
+    // any future provider with the same CORS restriction sets the same
+    // one flag and needs nothing else.
+    requiresServerProxy: true,
+    notes: 'OpenAI-compatible Chat Completions API (platform.moonshot.ai). Requires the local CORS proxy — see requiresServerProxy above. Model catalog moves fairly often; if kimi-k3 404s, check the current model list at platform.moonshot.ai/docs and update Preferred model.',
+    timeoutMs: 45000, // K3 "always reasons" per Moonshot's own docs — noticeably slower per response than a non-reasoning chat model, so it gets a longer window than the 30s default.
+    retries: 1,
+  },
+  {
     id: 'preset-github-models',
     name: 'GitHub Models',
     type: 'text',
@@ -781,7 +808,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Blocked by CORS from a browser — requires a backend proxy or serverless function to call. Configured here for completeness, but Test Connection will explain this rather than attempt a doomed direct call.',
+    notes: 'Requires the local CORS proxy (requiresServerProxy) — fal.run does not send Access-Control-Allow-Origin, so a direct browser call is blocked before it reaches the network. See BaseAdapter.fetchWithRetry / server/proxyHandler.mjs.',
+    requiresServerProxy: true,
     timeoutMs: 30000,
     retries: 1,
   },
@@ -799,7 +827,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Blocked by CORS from a browser — requires a backend proxy or serverless function to call.',
+    notes: 'Requires the local CORS proxy (requiresServerProxy) — api.replicate.com does not send Access-Control-Allow-Origin either. See BaseAdapter.fetchWithRetry / server/proxyHandler.mjs.',
+    requiresServerProxy: true,
     timeoutMs: 30000,
     retries: 1,
   },
@@ -902,7 +931,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Blocked by CORS from a browser — requires a backend proxy.',
+    notes: 'Requires the local CORS proxy (requiresServerProxy) — see preset-fal-ai above.',
+    requiresServerProxy: true,
     timeoutMs: 30000,
     retries: 1,
   },
@@ -920,7 +950,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Blocked by CORS from a browser — requires a backend proxy.',
+    notes: 'Requires the local CORS proxy (requiresServerProxy) — see preset-replicate-image above.',
+    requiresServerProxy: true,
     timeoutMs: 30000,
     retries: 1,
   },

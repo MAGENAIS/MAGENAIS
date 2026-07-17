@@ -47,6 +47,20 @@ export interface ProviderConfig {
   // general chat) — callWithFallback excludes anything flagged here from
   // the plain-text candidate list, while callVision still includes it.
   visionOnly?: boolean;
+  // PHASE 4 CORS FIX: some provider APIs (Moonshot/Kimi being the
+  // immediate case, see BaseAdapter.fetchWithRetry and server/proxyHandler.mjs)
+  // never send Access-Control-Allow-Origin — they're built to be called
+  // from a server, not a browser tab, so a direct browser fetch() is
+  // blocked before it ever leaves the page. When true, requests to this
+  // provider are routed through the local same-origin proxy
+  // (server/proxyHandler.mjs, mounted in both vite.config.ts for dev and
+  // server/proxy-server.mjs for production) instead of calling the
+  // provider's baseUrl directly — CORS is a browser-only restriction, so a
+  // server-to-server request from that proxy to the same provider is
+  // unaffected by it. This is the one flag any current or future
+  // OpenAI-compatible (or other) provider needs to work around a CORS
+  // block; no adapter-specific code is required.
+  requiresServerProxy?: boolean;
   // Runtime fields (not persisted)
   health?: ProviderHealth;
   lastUsed?: number;
