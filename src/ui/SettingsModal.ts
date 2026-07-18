@@ -16,8 +16,20 @@ import {
   getSelectedModelId,
   setSelectedModelId,
   getModelById,
+  getRegistryDefaultId,
 } from '../providers/LocalModelRegistry';
-import { disposeModelPipelines } from '../providers/adapters/TransformersAdapter';
+import { disposeModelPipelines, detectDevice as detectTransformersDevice } from '../providers/adapters/TransformersAdapter';
+import { LOCAL_ADAPTER_IDS, getRoutingMode, setRoutingMode, RoutingMode } from '../providers/RoutingMode';
+import {
+  download as downloadLocalModel,
+  pauseDownload as pauseLocalModelDownload,
+  resumeDownload as resumeLocalModelDownload,
+  cancelDownload as cancelLocalModelDownload,
+  verifyInstalled as verifyLocalModelInstalled,
+  getEntry as getLocalModelManifestEntry,
+  onManifestChange,
+  formatBytes as formatLocalModelBytes,
+} from '../providers/LocalModelDownloadManager';
 import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel } from '../providers/HealthCooldown';
 import { Config } from '../core/Config';
 import { Logger } from '../core/Logger';
@@ -41,9 +53,20 @@ function localTaskForProvider(provider: ProviderConfig): { task: LocalModelTask;
   return null;
 }
 
-const TYPE_FILTERS: Array<{ value: ProviderType | 'all'; label: string }> = [
+// 'vision' is a UI-only pseudo-category, not a ProviderType (see the
+// visionOnly doc comment in types.ts for why the underlying type system
+// deliberately doesn't have one). It exists here so a person browsing Keys
+// & Providers can find/manage vision-only entries (e.g.
+// builtin-transformers-vision) as their own group instead of them being
+// mixed into the 'text' filter, which is exactly the bug being fixed below:
+// isVisionOnly() reuses the identical `!p.visionOnly` rule that
+// ProviderManager.callWithFallback already applies at call time (see
+// registry/Manager.ts), so the UI and the runtime agree on what counts as
+// "text" instead of each having their own notion of it.
+const TYPE_FILTERS: Array<{ value: ProviderType | 'all' | 'vision'; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'text', label: 'Text' },
+  { value: 'vision', label: 'Vision' },
   { value: 'image', label: 'Image' },
   { value: 'video', label: 'Video' },
   { value: 'audio', label: 'Audio (STT)' },
@@ -55,6 +78,11 @@ const TYPE_FILTERS: Array<{ value: ProviderType | 'all'; label: string }> = [
   { value: 'research', label: 'Research' },
   { value: 'gamegen', label: 'Game Generation' },
 ];
+
+/** Same rule ProviderManager.callWithFallback uses to exclude vision-only entries from real text calls — see the comment above. */
+function isVisionOnly(p: ProviderConfig): boolean {
+  return p.visionOnly === true;
+}
 
 const ADAPTER_OPTIONS = [
   'openai-compatible', 'openai', 'groq', 'together', 'deepinfra', 'openrouter',
@@ -103,7 +131,9 @@ function blankProvider(type: ProviderType = 'text'): ProviderConfig {
 
 export class SettingsModal {
   private kernel: Kernel;
-  private activeFilter: ProviderType | 'all' = 'all';
+  private activeFilter: ProviderType | 'all' | 'vision' = 'all';
+  private unsubscribeManifest: (() => void) | null = null;
+  private healthUpdateHandler: (() => void) | null = null;
 
   constructor(kernel: Kernel) {
     this.kernel = kernel;
@@ -113,11 +143,53 @@ export class SettingsModal {
     this.ensureDom();
     this.renderList();
     this.renderLocalModelsList();
+    void this.renderDiagnostics();
     document.getElementById('settingsModal')?.classList.add('open');
+    // Live-update download progress/status while the modal is open —
+    // unsubscribed in close() so a background download doesn't keep this
+    // modal's listener (and its re-renders) alive after the person
+    // navigates away.
+    if (!this.unsubscribeManifest) {
+      this.unsubscribeManifest = onManifestChange(() => { this.renderLocalModelsList(); void this.renderDiagnostics(); });
+    }
+    if (!this.healthUpdateHandler) {
+      // Debounced — a multi-provider race can fire several
+      // 'provider:health-updated' events within milliseconds of each
+      // other, and re-rendering the whole diagnostics table on every
+      // single one is wasted work for a panel that's just being glanced
+      // at, not actively watched frame-by-frame.
+      let pending: number | null = null;
+      this.healthUpdateHandler = () => {
+        if (pending) return;
+        pending = window.setTimeout(() => { pending = null; void this.renderDiagnostics(); }, 400);
+      };
+      this.kernel.getEventBus().on('provider:health-updated', this.healthUpdateHandler);
+    }
+  }
+
+  /** Opens straight to the Local Models section with a specific model's row expanded/highlighted — used by Mode.ts's "Download it now" button (see ui:openLocalModels in App.ts). */
+  focusLocalModel(modelId: string): void {
+    this.open();
+    const details = document.getElementById('localModelsDetails') as HTMLDetailsElement | null;
+    if (details) details.open = true;
+    requestAnimationFrame(() => {
+      const row = document.querySelector(`[data-local-model-id="${CSS.escape(modelId)}"]`) as HTMLElement | null;
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.add('flash-highlight');
+        setTimeout(() => row.classList.remove('flash-highlight'), 2000);
+      }
+    });
   }
 
   private close(): void {
     document.getElementById('settingsModal')?.classList.remove('open');
+    this.unsubscribeManifest?.();
+    this.unsubscribeManifest = null;
+    if (this.healthUpdateHandler) {
+      this.kernel.getEventBus().off('provider:health-updated', this.healthUpdateHandler);
+      this.healthUpdateHandler = null;
+    }
   }
 
   private ensureDom(): void {
@@ -127,51 +199,65 @@ export class SettingsModal {
     el.className = 'modal-backdrop';
     el.id = 'settingsModal';
     el.innerHTML = `
-      <div class="modal" style="max-width:760px;">
+      <div class="modal settings-modal" style="max-width:760px;">
         <button class="modal-close" id="closeSettings">×</button>
         <h3>Universal Provider Manager</h3>
-        <p class="hint">Every provider — built-in, preset, or custom — lives in one registry. Add, edit, duplicate, or delete anything.
-          <b style="color:var(--ink-dim);">Keys are saved on this device (browser local storage)</b>
-          so you don't need to re-enter them next time — they're only ever sent directly to the
-          provider you're calling. On a shared computer, use "Clear device data" before you leave.</p>
 
-        <div class="chip-group" id="providerTypeFilterChips">
-          ${TYPE_FILTERS.map(f => `<span class="chip${f.value === 'all' ? ' active' : ''}" data-val="${f.value}">${f.label}</span>`).join('')}
+        <div class="settings-pinned">
+          <p class="hint">Every provider — built-in, preset, or custom — lives in one registry. Add, edit, duplicate, or delete anything.
+            <b style="color:var(--ink-dim);">Keys are saved on this device (browser local storage)</b>
+            so you don't need to re-enter them next time — they're only ever sent directly to the
+            provider you're calling. On a shared computer, use "Clear device data" before you leave.</p>
+
+          <div class="field" style="margin-bottom:0;">
+            <label class="field-label">Routing mode <span class="opt">which providers are allowed to race for each request</span></label>
+            <div class="chip-group" id="routingModeChips">
+              <span class="chip" data-mode="hybrid" title="Race every enabled, valid provider in parallel — first response wins. Default; nothing changes for existing setups.">Hybrid (race)</span>
+              <span class="chip" data-mode="local" title="Only Transformers.js/WebLLM/Ollama/on-device speech race. Nothing else is contacted, even if enabled.">Local only</span>
+              <span class="chip" data-mode="cloud" title="Only non-local (API-key) providers race.">Cloud only</span>
+            </div>
+          </div>
+
+          <div class="chip-group" id="providerTypeFilterChips">
+            ${TYPE_FILTERS.map(f => `<span class="chip${f.value === 'all' ? ' active' : ''}" data-val="${f.value}">${f.label}</span>`).join('')}
+          </div>
+
+          <div id="providerList" class="settings-provider-list"></div>
+
+          <button class="ghost-btn" id="addProviderBtn" style="width:100%;">+ Add custom provider</button>
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="ghost-btn small" id="resetProvidersBtn">Reset to defaults</button>
+            <button class="ghost-btn small" id="clearDeviceDataBtn" style="border-color:var(--rust); color:var(--rust);">Clear device data</button>
+          </div>
         </div>
 
-        <div id="providerList" style="display:flex; flex-direction:column; gap:8px; max-height:380px; overflow-y:auto;"></div>
+        <div class="settings-accordions">
+          <details class="log-details settings-accordion" id="localModelsDetails">
+            <summary>Local models (Transformers.js, in-browser)</summary>
+            <div class="settings-accordion-body">
+              <p class="hint">These run entirely on-device — no key, no signup. The main text/vision/audio/embeddings
+                models are edited from their provider row above ("Edit" → "Default model"); the three below are
+                sub-tasks that share a provider with something else, so they're configured here instead.</p>
+              <div id="localModelsList" style="display:flex; flex-direction:column; gap:10px;"></div>
+            </div>
+          </details>
 
-        <div class="divider"></div>
-        <details class="log-details" id="localModelsDetails">
-          <summary>Local models (Transformers.js, in-browser)</summary>
-          <div style="padding:10px 12px 12px; display:flex; flex-direction:column; gap:10px;">
-            <p class="hint">These run entirely on-device — no key, no signup. The main text/vision/audio/embeddings
-              models are edited from their provider row above ("Edit" → "Default model"); the three below are
-              sub-tasks that share a provider with something else, so they're configured here instead.</p>
-            <div id="localModelsList" style="display:flex; flex-direction:column; gap:10px;"></div>
-          </div>
-        </details>
+          <details class="log-details settings-accordion" id="diagnosticsDetails">
+            <summary>Diagnostics</summary>
+            <div class="settings-accordion-body">
+              <div id="diagnosticsDeviceInfo" class="hint" style="margin:0;"></div>
+              <div id="diagnosticsTable" style="display:flex; flex-direction:column; gap:6px;"></div>
 
-        <div class="divider"></div>
-        <details class="log-details" id="diagnosticsDetails">
-          <summary>Diagnostics</summary>
-          <div style="padding:10px 12px 12px; display:flex; flex-direction:column; gap:10px;">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-              <input type="checkbox" id="debugModeToggle">
-              <span>Debug mode — verbose logging in the browser console (request IDs, provider/model, latency, tokens, retries, failure reasons)</span>
-            </label>
-            <p class="hint">Off by default to keep the console quiet during normal use. A failed provider call is always logged
-              regardless of this setting — this only adds the successful-call detail on top, for troubleshooting.</p>
-          </div>
-        </details>
-
-        <div class="divider"></div>
-        <button class="ghost-btn" id="addProviderBtn" style="width:100%;">+ Add custom provider</button>
-
-        <div class="divider"></div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="ghost-btn small" id="resetProvidersBtn">Reset to defaults</button>
-          <button class="ghost-btn small" id="clearDeviceDataBtn" style="border-color:var(--rust); color:var(--rust);">Clear device data</button>
+              <div class="divider"></div>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="debugModeToggle">
+                <span>Debug mode — verbose logging in the browser console (request IDs, provider/model, latency, tokens, retries, failure reasons)</span>
+              </label>
+              <p class="hint">Off by default to keep the console quiet during normal use. A failed provider call is always logged
+                regardless of this setting — this only adds the successful-call detail on top, for troubleshooting.</p>
+            </div>
+          </details>
         </div>
       </div>
     `;
@@ -186,14 +272,34 @@ export class SettingsModal {
       chip.addEventListener('click', () => {
         el.querySelectorAll('#providerTypeFilterChips .chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
-        this.activeFilter = (chip as HTMLElement).dataset.val as ProviderType | 'all';
+        this.activeFilter = (chip as HTMLElement).dataset.val as ProviderType | 'all' | 'vision';
         this.renderList();
       });
     });
 
-    el.querySelector('#addProviderBtn')?.addEventListener('click', () =>
-      this.openEditor(blankProvider(this.activeFilter === 'all' ? 'text' : this.activeFilter), true)
-    );
+    const routingChips = el.querySelectorAll('#routingModeChips .chip');
+    const currentMode = getRoutingMode();
+    routingChips.forEach(chip => {
+      const el2 = chip as HTMLElement;
+      el2.classList.toggle('active', el2.dataset.mode === currentMode);
+      el2.addEventListener('click', () => {
+        routingChips.forEach(c => c.classList.remove('active'));
+        el2.classList.add('active');
+        setRoutingMode(el2.dataset.mode as RoutingMode);
+      });
+    });
+
+    el.querySelector('#addProviderBtn')?.addEventListener('click', () => {
+      // 'vision' isn't a real ProviderType to store on the new provider —
+      // a custom vision-only entry is still stored as type:'text' with
+      // visionOnly:true (matching how the built-in one works), so default
+      // the editor's Type dropdown to 'text' and let the person tick
+      // visionOnly there instead of trying to persist a nonexistent type.
+      const startType = this.activeFilter === 'all' || this.activeFilter === 'vision' ? 'text' : this.activeFilter;
+      const draft = blankProvider(startType);
+      if (this.activeFilter === 'vision') draft.visionOnly = true;
+      this.openEditor(draft, true);
+    });
     el.querySelector('#resetProvidersBtn')?.addEventListener('click', () => this.handleReset());
     el.querySelector('#clearDeviceDataBtn')?.addEventListener('click', () => this.handleClearData());
 
@@ -214,9 +320,26 @@ export class SettingsModal {
     if (!list) return;
 
     const manager = this.kernel.getProviderManager();
-    const providers = manager
-      .getProviders(this.activeFilter === 'all' ? undefined : this.activeFilter)
-      .sort((a: ProviderConfig, b: ProviderConfig) => a.priority - b.priority);
+    let providers: ProviderConfig[];
+    if (this.activeFilter === 'vision') {
+      // Vision-only entries are stored as type:'text' (see the visionOnly
+      // doc comment in types.ts), so pull from the 'text' pool and keep
+      // only the vision-only ones — never mixed with genuine text
+      // providers, and never duplicated into two tabs at once.
+      providers = manager.getProviders('text').filter(isVisionOnly);
+    } else if (this.activeFilter === 'text') {
+      // Root-cause fix: this used to show every type:'text' row, including
+      // vision-only ones — the exact same providers ProviderManager
+      // .callWithFallback already excludes at call time (see isVisionOnly's
+      // doc comment). The Text tab now agrees with what a Text request can
+      // actually use.
+      providers = manager.getProviders('text').filter(p => !isVisionOnly(p));
+    } else if (this.activeFilter === 'all') {
+      providers = manager.getProviders();
+    } else {
+      providers = manager.getProviders(this.activeFilter);
+    }
+    providers = providers.sort((a: ProviderConfig, b: ProviderConfig) => a.priority - b.priority);
 
     if (providers.length === 0) {
       list.innerHTML = '<p class="hint">No providers in this category yet.</p>';
@@ -246,6 +369,8 @@ export class SettingsModal {
           ? '<span class="key-status set">key set</span>'
           : '<span class="key-status unset">no key set — add one below to activate</span>';
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
+      const visionBadge = isVisionOnly(p) ? ' · <span style="color:var(--violet, #8a6fd8);">vision-only</span>' : '';
+      const localBadge = LOCAL_ADAPTER_IDS.has(p.adapterId) ? ' · <span style="color:var(--sage, #4a9d6a);">local</span>' : '';
       const cooldownBadge = isInCooldown(p.health)
         ? ` · <span style="color:var(--rust);" title="Repeated failures — this provider is being skipped until it cools down, so it doesn't keep failing the same way on every request.">cooling down (${cooldownRemainingLabel(p.health)} left) — ${escapeHtml(cooldownReasonLabel(p.health!.failureCategory as any))}</span>`
         : '';
@@ -266,7 +391,7 @@ export class SettingsModal {
         <div class="provider-row-top">
           <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
             <span class="provider-name" style="color:${statusColor};">${escapeHtml(p.name)}</span>
-            <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}${cooldownBadge}</span>
+            <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}${visionBadge}${localBadge}${cooldownBadge}</span>
             ${testResultLine}
           </div>
           <label style="display:flex; align-items:center; gap:5px; cursor:pointer; flex-shrink:0;" title="${p.noKeyNeeded || p.isBuiltIn || p.apiKey ? 'Enable or disable this provider' : 'Enabled providers activate automatically once you add an API key below'}">
@@ -368,60 +493,226 @@ export class SettingsModal {
   }
 
   /**
-   * Renders the three Transformers.js sub-task pickers (summarization,
-   * translation, OCR) that don't have their own ProviderConfig row — see
-   * localTaskForProvider's doc comment for why those four DO get one and
-   * these three don't. Each selection is read/written straight through
-   * LocalModelRegistry's own localStorage-backed storage, independent of
-   * ProviderManager, since there's no provider row to persist it on.
+   * Diagnostics (item 14) — surfaces data that mostly already existed but
+   * was never shown anywhere: ProviderConfig.successRate/averageLatency
+   * are smoothed on every real call outcome by Registry.updateHealth (see
+   * that file), and timeoutCount was added there in this pass specifically
+   * so "how often has this been timing out" has an answer that isn't just
+   * "check the console." Local-model rows also show LocalModelDownloadManager's
+   * install state, so "why isn't this working" and "is this downloaded"
+   * are answered in the same place instead of two different UI sections.
+   */
+  private async renderDiagnostics(): Promise<void> {
+    const deviceInfo = document.getElementById('diagnosticsDeviceInfo');
+    const table = document.getElementById('diagnosticsTable');
+    if (!deviceInfo || !table) return;
+
+    // Device detection is cheap and cached after the first call (see
+    // TransformersAdapter.detectDevice) — safe to trigger here rather than
+    // only ever finding out lazily on someone's first real generation.
+    if (deviceInfo.textContent === '') deviceInfo.textContent = 'Detecting GPU/WebGPU support…';
+    const device = await detectTransformersDevice();
+    const heapMB = (performance as any).memory?.usedJSHeapSize
+      ? `${((performance as any).memory.usedJSHeapSize / (1024 * 1024)).toFixed(0)}MB`
+      : null;
+    deviceInfo.innerHTML =
+      `Transformers.js backend: <b style="color:${device === 'webgpu' ? 'var(--sage, #4a9d6a)' : 'var(--ink)'};">${device === 'webgpu' ? 'WebGPU (accelerated)' : 'WASM/CPU'}</b>` +
+      (heapMB ? ` · JS heap: ${heapMB} <span class="opt">(Chrome only, approximate — doesn't include WASM/GPU memory)</span>` : ' · Memory usage: not exposed by this browser');
+
+    const manager = this.kernel.getProviderManager();
+    const providers = manager.getProviders().sort((a: ProviderConfig, b: ProviderConfig) => a.priority - b.priority);
+    table.innerHTML = providers.map((p: ProviderConfig) => {
+      const health = p.health;
+      const statusColor: Record<string, string> = {
+        healthy: 'var(--sage, #4a9d6a)', degraded: 'var(--amber, #d8a23f)',
+        unhealthy: 'var(--rust)', unknown: 'var(--ink-faint)',
+      };
+      const status = health?.status || 'unknown';
+      const successPct = p.successRate !== undefined ? `${Math.round(p.successRate * 100)}%` : '—';
+      const latency = p.averageLatency !== undefined ? `${Math.round(p.averageLatency)}ms` : '—';
+      const timeouts = p.timeoutCount || 0;
+      const cooldown = health?.cooldownUntil && health.cooldownUntil > Date.now() ? ` · cooling down (${cooldownRemainingLabel(health)})` : '';
+      const lastError = health?.lastError ? escapeHtml(health.lastError.slice(0, 80)) + (health.lastError.length > 80 ? '…' : '') : '';
+
+      const localTask = localTaskForProvider(p);
+      let installedLine = '';
+      if (localTask) {
+        const modelId = p.defaultModel || getRegistryDefaultId(localTask.task, localTask.role);
+        const entry = modelId ? getLocalModelManifestEntry(modelId, localTask.task, localTask.role) : undefined;
+        const s = entry?.status || 'not-installed';
+        installedLine = ` · <span style="color:${s === 'ready' ? 'var(--sage, #4a9d6a)' : 'var(--ink-faint)'};">${s === 'ready' ? 'installed' : s === 'not-installed' ? 'not downloaded' : s}</span>`;
+      }
+
+      return `
+        <div style="display:flex; flex-direction:column; gap:1px; padding:6px 8px; border-radius:6px; background:var(--panel-2, rgba(127,127,127,0.06));">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span style="width:7px; height:7px; border-radius:50%; background:${statusColor[status]}; flex-shrink:0;"></span>
+            <b style="font-size:12px;">${escapeHtml(p.name)}</b>
+            <span class="hint" style="margin:0;">${escapeHtml(p.type)}${installedLine}${cooldown}</span>
+          </div>
+          <div class="hint" style="margin:0; font-family:var(--mono); font-size:10px;">
+            success ${successPct} · avg latency ${latency} · timeouts ${timeouts}${lastError ? ` · last error: ${lastError}` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+
+  /**
+   * Local Models Manager (item 3/4/5 of the local-AI-studio brief) — every
+   * Transformers.js task in one place, each with real install-state
+   * controls, instead of scattered across individual provider rows with no
+   * download management at all. Two kinds of rows:
+   *  - Provider-backed (text-generation, caption, ASR, embeddings, music):
+   *    the model choice is `ProviderConfig.defaultModel` on the matching
+   *    builtin-transformers-* row (see localTaskForProvider) — writing here
+   *    goes through the same manager.updateProvider() used by the regular
+   *    provider editor, so both stay in sync.
+   *  - Registry-only (summarization, translation, OCR): no ProviderConfig
+   *    row exists for these (see the old doc comment, preserved below on
+   *    ensureRegistryOnlyRow), so the choice is read/written straight
+   *    through LocalModelRegistry's own storage, exactly as before.
+   * Install state (status/progress/installed-at) for every row comes from
+   * LocalModelDownloadManager's manifest, keyed by the selected model ID —
+   * switching a row's model swaps which manifest entry its controls act on.
    */
   private renderLocalModelsList(): void {
     const list = document.getElementById('localModelsList');
     if (!list) return;
+    const manager = this.kernel.getProviderManager();
 
-    // OCR shares the 'image-to-text' transformers.js task with captioning —
-    // captioning's default lives on the builtin-transformers-vision
-    // provider row instead (see localTaskForProvider), so only OCR needs a
-    // row here.
-    const rows: Array<{ label: string; task: LocalModelTask; role?: 'caption' | 'ocr' }> = [
+    type Row = { label: string; task: LocalModelTask; role?: 'caption' | 'ocr'; providerId?: string };
+    const rows: Row[] = [];
+
+    // Provider-backed rows: one per transformers-adapter ProviderConfig.
+    manager.getProviders('text').concat(manager.getProviders('audio'), manager.getProviders('music'), manager.getProviders('embeddings' as ProviderType))
+      .filter((p: ProviderConfig) => p.adapterId === 'transformers')
+      .forEach((p: ProviderConfig) => {
+        const t = localTaskForProvider(p);
+        if (t) rows.push({ label: `${p.name}`, task: t.task, role: t.role, providerId: p.id });
+      });
+
+    // Registry-only rows — no ProviderConfig row backs these (see the doc
+    // comment above), so read/write LocalModelRegistry's own storage.
+    rows.push(
       { label: 'Summarization (used by Documents/Research when summarizing text)', task: 'summarization' },
       { label: 'Translation (English source only, see model notes)', task: 'translation' },
       { label: 'OCR (reading text in images, used by Vision)', task: 'image-to-text', role: 'ocr' },
-    ];
+    );
 
     list.innerHTML = '';
-    rows.forEach(({ label, task, role }) => {
+    rows.forEach(({ label, task, role, providerId }) => {
       const options = getModelsForTask(task, role);
       if (options.length === 0) return;
-      const selected = getSelectedModelId(task, role);
+      const provider = providerId ? manager.getProviders().find((p: ProviderConfig) => p.id === providerId) : undefined;
+      const selected = provider ? (provider.defaultModel || getRegistryDefaultId(task, role) || options[0]?.id) : getSelectedModelId(task, role);
+      const def = getModelById(selected || '') || options[0];
 
       const row = document.createElement('div');
-      row.className = 'field';
+      row.className = 'local-model-row';
+      row.dataset.localModelId = def?.id || '';
       row.innerHTML = `
-        <label class="field-label">${label}</label>
-        <select data-task="${task}" ${role ? `data-role="${role}"` : ''}>
+        <label class="field-label">${escapeHtml(label)}</label>
+        <select data-task="${task}" ${role ? `data-role="${role}"` : ''} ${providerId ? `data-provider-id="${escapeHtml(providerId)}"` : ''}>
           ${options.map(m => `<option value="${escapeHtml(m.id)}" ${m.id === selected ? 'selected' : ''}>${escapeHtml(m.displayName)}${m.recommended ? ' (recommended)' : ''}</option>`).join('')}
         </select>
         <p class="hint" data-meta style="margin-top:4px;"></p>
+        <div data-status-area style="margin-top:6px;"></div>
       `;
       const select = row.querySelector('select') as HTMLSelectElement;
       const meta = row.querySelector('[data-meta]') as HTMLElement;
+      const statusArea = row.querySelector('[data-status-area]') as HTMLElement;
+
       const updateMeta = () => {
-        const def = getModelById(select.value);
-        meta.textContent = def
-          ? `~${def.downloadSizeMB}MB download · ~${def.ramRequirementMB}MB RAM · ${def.quantization}${def.notes ? ` — ${def.notes}` : ''}`
+        const d = getModelById(select.value);
+        meta.textContent = d
+          ? `~${d.downloadSizeMB}MB download · ~${d.ramRequirementMB}MB RAM · ${d.quantization}${d.notes ? ` — ${d.notes}` : ''}`
           : '';
       };
+      const renderStatus = () => {
+        const d = getModelById(select.value);
+        if (!d) { statusArea.innerHTML = ''; return; }
+        statusArea.innerHTML = this.renderLocalModelStatus(d.id, task, role);
+        this.wireLocalModelStatusButtons(statusArea, d.id, task, role);
+      };
+
       updateMeta();
+      renderStatus();
       select.addEventListener('change', () => {
         const previous = selected;
-        setSelectedModelId(task, select.value, role);
+        if (providerId) {
+          manager.updateProvider(providerId, { defaultModel: select.value });
+        } else {
+          setSelectedModelId(task, select.value, role);
+        }
+        row.dataset.localModelId = select.value;
         updateMeta();
+        renderStatus();
         if (previous && previous !== select.value) disposeModelPipelines(previous);
       });
+
       list.appendChild(row);
     });
   }
+
+  /** Renders the status badge + progress bar for one model's manifest entry. */
+  private renderLocalModelStatus(modelId: string, task: LocalModelTask, role?: 'caption' | 'ocr'): string {
+    const e = getLocalModelManifestEntry(modelId, task, role);
+    const status = e?.status || 'not-installed';
+    const badgeColor: Record<string, string> = {
+      'not-installed': 'var(--ink-faint)', queued: 'var(--azure)', downloading: 'var(--azure)',
+      paused: 'var(--amber, #d8a23f)', ready: 'var(--sage, #4a9d6a)', error: 'var(--rust)', corrupted: 'var(--rust)',
+    };
+    const label: Record<string, string> = {
+      'not-installed': 'Not installed', queued: 'Queued…', downloading: 'Downloading…',
+      paused: 'Paused', ready: 'Installed', error: 'Failed', corrupted: 'Corrupted',
+    };
+    const pct = e && e.bytesTotal > 0 ? Math.round((e.bytesDownloaded / e.bytesTotal) * 100) : 0;
+    const sizeLabel = e && e.bytesTotal > 0 ? ` (${formatLocalModelBytes(e.bytesDownloaded)} / ${formatLocalModelBytes(e.bytesTotal)})` : '';
+    const installedLabel = status === 'ready' && e?.installedAt ? ` · installed ${timeAgo(e.installedAt)}` : '';
+    const errorLabel = (status === 'error' || status === 'corrupted') && e?.lastError ? ` — ${escapeHtml(e.lastError)}` : '';
+
+    const buttons: string[] = [];
+    if (status === 'not-installed' || status === 'error' || status === 'corrupted') buttons.push(`<button class="ghost-btn small" data-action="download">Download</button>`);
+    if (status === 'downloading' || status === 'queued') buttons.push(`<button class="ghost-btn small" data-action="pause">Pause</button>`, `<button class="ghost-btn small" data-action="cancel">Cancel</button>`);
+    if (status === 'paused') buttons.push(`<button class="ghost-btn small" data-action="resume">Resume</button>`, `<button class="ghost-btn small" data-action="cancel">Cancel</button>`);
+    if (status === 'ready') buttons.push(`<button class="ghost-btn small" data-action="verify">Verify</button>`, `<button class="ghost-btn small" data-action="cancel">Remove</button>`);
+
+    const bar = (status === 'downloading' || status === 'queued')
+      ? `<div class="local-model-progress"><div class="local-model-progress-fill" style="width:${pct}%;"></div></div>`
+      : '';
+
+    return `
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span style="color:${badgeColor[status]}; font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">${label[status]}</span>
+        <span class="hint" style="margin:0;">${pct > 0 && (status === 'downloading' || status === 'queued') ? `${pct}%${sizeLabel}` : ''}${installedLabel}${errorLabel}</span>
+        <div style="display:flex; gap:6px; margin-left:auto;">${buttons.join('')}</div>
+      </div>
+      ${bar}
+    `;
+  }
+
+  private wireLocalModelStatusButtons(container: HTMLElement, modelId: string, task: LocalModelTask, role?: 'caption' | 'ocr'): void {
+    container.querySelector('[data-action="download"]')?.addEventListener('click', () => {
+      downloadLocalModel(modelId, task, role).catch(() => {}); // failure surfaces via manifest status, not a thrown-away promise rejection
+    });
+    container.querySelector('[data-action="resume"]')?.addEventListener('click', () => {
+      resumeLocalModelDownload(modelId, task, role).catch(() => {});
+    });
+    container.querySelector('[data-action="pause"]')?.addEventListener('click', () => pauseLocalModelDownload(modelId, task, role));
+    container.querySelector('[data-action="cancel"]')?.addEventListener('click', () => cancelLocalModelDownload(modelId, task, role));
+    container.querySelector('[data-action="verify"]')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const original = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Verifying…';
+      const result = await verifyLocalModelInstalled(modelId, task, role);
+      btn.disabled = false; btn.textContent = original;
+      alert(result.message); // Deliberately simple — this is a manual, infrequent diagnostic action, not part of the main flow.
+    });
+  }
+
+
 
   /** Full field-by-field provider editor — used for both "Edit" and "Add custom provider". */
   private openEditor(provider: ProviderConfig, isNew: boolean): void {
@@ -492,7 +783,12 @@ export class SettingsModal {
                   ${getModelsForTask(localTask.task, localTask.role).map(m => `<option value="${escapeHtml(m.id)}" ${(provider.defaultModel || '') === m.id ? 'selected' : ''}>${escapeHtml(m.displayName)}${m.recommended ? ' (recommended)' : ''}</option>`).join('')}
                 </select>
                 <p class="hint" id="pe-defaultModel-meta" style="margin-top:4px;"></p>`
-              : `<input type="text" id="pe-defaultModel" value="${escapeHtml(provider.defaultModel || '')}">`}
+              : `<div style="display:flex; gap:6px;">
+                  <input type="text" id="pe-defaultModel" value="${escapeHtml(provider.defaultModel || '')}" style="flex:1;" list="pe-defaultModel-discovered">
+                  ${this.kernel.getProviderManager().adapterSupportsModelDiscovery(provider.adapterId) ? `<button type="button" class="ghost-btn small" id="pe-discoverModels">Discover</button>` : ''}
+                </div>
+                <datalist id="pe-defaultModel-discovered"></datalist>
+                <p class="hint" id="pe-discover-status" style="margin-top:4px;"></p>`}
           </div>
           <div class="field">
             <label class="field-label">Timeout (ms)</label>
@@ -502,6 +798,10 @@ export class SettingsModal {
         <label style="display:flex; align-items:center; gap:6px; margin:10px 0; cursor:pointer;">
           <input type="checkbox" id="pe-noKeyNeeded" style="width:auto;" ${provider.noKeyNeeded ? 'checked' : ''}>
           <span class="field-label" style="margin:0;">No API key needed</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; margin:10px 0; cursor:pointer;" title="For providers that can ONLY caption/analyze images, not answer general text prompts. Keeps it out of the Text fallback chain and lists it under the Vision filter instead.">
+          <input type="checkbox" id="pe-visionOnly" style="width:auto;" ${provider.visionOnly ? 'checked' : ''}>
+          <span class="field-label" style="margin:0;">Vision-only <span class="opt">image captioning/analysis, not general text</span></span>
         </label>
         <div class="field">
           <label class="field-label">Notes <span class="opt">optional</span></label>
@@ -537,6 +837,27 @@ export class SettingsModal {
       });
     }
 
+    m.querySelector('#pe-discoverModels')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const statusEl = m.querySelector('#pe-discover-status') as HTMLElement | null;
+      const datalist = m.querySelector('#pe-defaultModel-discovered') as HTMLDataListElement | null;
+      btn.disabled = true;
+      const originalLabel = btn.textContent;
+      btn.textContent = 'Discovering…';
+      try {
+        const models = await this.kernel.getProviderManager().fetchModelsFor(provider.id);
+        if (datalist) datalist.innerHTML = models.map(mid => `<option value="${escapeHtml(mid)}">`).join('');
+        if (statusEl) statusEl.textContent = models.length > 0
+          ? `Found ${models.length} installed model(s) — start typing in the field above to see suggestions.`
+          : 'Connected, but no models are installed yet.';
+      } catch (err: any) {
+        if (statusEl) statusEl.textContent = err?.message || 'Could not discover models — is the service running?';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    });
+
     m.querySelector('#saveProviderBtn')?.addEventListener('click', () => {
       const authType = (document.getElementById('pe-authType') as HTMLSelectElement).value as ProviderConfig['authType'];
       const authFieldName = (document.getElementById('pe-authFieldName') as HTMLInputElement).value.trim();
@@ -554,6 +875,7 @@ export class SettingsModal {
         defaultModel: (document.getElementById('pe-defaultModel') as HTMLInputElement | HTMLSelectElement).value.trim() || undefined,
         timeoutMs: parseInt((document.getElementById('pe-timeoutMs') as HTMLInputElement).value, 10) || 30000,
         noKeyNeeded: (document.getElementById('pe-noKeyNeeded') as HTMLInputElement).checked,
+        visionOnly: (document.getElementById('pe-visionOnly') as HTMLInputElement).checked || undefined,
         notes: (document.getElementById('pe-notes') as HTMLTextAreaElement).value.trim() || undefined,
         enabled: isNew ? true : provider.enabled,
       };
@@ -571,10 +893,11 @@ export class SettingsModal {
         // if it was saved under a different type than the modal's current
         // filter (e.g. the Type dropdown was changed before saving), switch
         // the filter to match instead of leaving it hidden in the list.
-        if (this.activeFilter !== 'all' && this.activeFilter !== updated.type) {
-          this.activeFilter = updated.type;
+        const matchesVisionFilter = this.activeFilter === 'vision' && isVisionOnly(updated);
+        if (this.activeFilter !== 'all' && !matchesVisionFilter && this.activeFilter !== updated.type) {
+          this.activeFilter = updated.visionOnly ? 'vision' : updated.type;
           document.querySelectorAll('#providerTypeFilterChips .chip').forEach(c => {
-            c.classList.toggle('active', (c as HTMLElement).dataset.val === updated.type);
+            c.classList.toggle('active', (c as HTMLElement).dataset.val === this.activeFilter);
           });
         }
       } else {

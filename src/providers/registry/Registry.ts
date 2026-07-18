@@ -153,6 +153,9 @@ export class ProviderRegistry {
         }
       } else if (health.status === 'unhealthy') {
         p.successRate = (p.successRate || 0) * 0.9;
+        if (health.failureCategory === 'timeout') {
+          p.timeoutCount = (p.timeoutCount || 0) + 1;
+        }
       }
       this.eventBus.emit('provider:health-updated', id);
     }

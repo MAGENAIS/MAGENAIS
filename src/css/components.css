@@ -176,6 +176,49 @@ input[type=range]{ flex:1; accent-color: var(--amber); }
   line-height:1;
 }
 
+/* Keys & Providers — Universal Provider Manager layout.
+   Root cause of the old bug: the whole modal was one shared flex/scroll
+   region, so opening the Local Models or Diagnostics <details> grew the
+   modal's content past its max-height and the browser's scroll position
+   effectively buried the provider list under whatever just expanded below
+   it. Fix: split into a pinned block (filters + list + add/reset buttons,
+   flex-shrink:0, list has its own min/max height + scrollbar) and a
+   separate accordions block whose panels each get their own bounded,
+   independently-scrolling body — neither can ever shrink the other. */
+.settings-modal { display:flex; flex-direction:column; gap:14px; }
+.settings-pinned { flex:0 0 auto; display:flex; flex-direction:column; gap:12px; }
+.settings-provider-list {
+  display:flex; flex-direction:column; gap:8px;
+  min-height:220px; max-height:360px; overflow-y:auto; flex-shrink:0;
+  border:1px solid var(--line-bright); border-radius:var(--radius); padding:4px;
+}
+.settings-accordions { flex:0 0 auto; display:flex; flex-direction:column; gap:12px; }
+.settings-accordion { flex-shrink:0; }
+.settings-accordion-body {
+  padding:10px 12px 12px; display:flex; flex-direction:column; gap:10px;
+  max-height:240px; overflow-y:auto;
+}
+@media (max-width: 640px) {
+  .settings-provider-list { min-height:160px; max-height:260px; }
+  .settings-accordion-body { max-height:180px; }
+}
+
+.local-model-row {
+  border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px;
+  display:flex; flex-direction:column; gap:2px;
+}
+.local-model-row.flash-highlight { animation: local-model-flash 2s ease-out; }
+@keyframes local-model-flash {
+  0% { background-color: color-mix(in srgb, var(--azure) 25%, transparent); }
+  100% { background-color: transparent; }
+}
+.local-model-progress {
+  height:4px; border-radius:2px; background:var(--line); overflow:hidden; margin-top:4px;
+}
+.local-model-progress-fill {
+  height:100%; background:var(--azure); transition: width 0.25s ease;
+}
+
 /* Keys & Providers */
 .key-row{ display:flex; flex-direction:column; gap:5px; }
 .key-row .key-label{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); display:flex; justify-content:space-between; }

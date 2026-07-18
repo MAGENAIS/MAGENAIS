@@ -1,5 +1,10 @@
 import { Kernel } from '../../core/Kernel';
 
+/** Minimal HTML-escaping for text interpolated into innerHTML — mirrors the equivalent local helper in SettingsModal.ts. */
+function escapeHtmlLite(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
 /**
  * Base class for all modes (text, image, video, etc.)
  * Each mode controls its own panel and output rendering.
@@ -77,8 +82,28 @@ export abstract class Mode {
   protected renderError(err: any): void {
     const message = err?.message || String(err);
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement | null;
+    // Local-model-not-downloaded is common enough (first time trying any
+    // Transformers.js task) and has one obvious fix that a generic error
+    // banner doesn't offer — see ProviderManager.getLastLocalModelMissing()
+    // (Manager.ts) and ModelNotInstalledError (TransformersAdapter.ts) for
+    // where this is set. Only trust it if it was recorded within the last
+    // few seconds, so an unrelated earlier download-missing failure from
+    // a previous run doesn't get attributed to this one.
+    const missing = this.kernel.getProviderManager().getLastLocalModelMissing?.();
+    const isFreshMissing = missing && Date.now() - missing.at < 5000;
     if (stage && !stage.querySelector('.result-text, .result-media, .doc-summary-block')) {
-      stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text stage-error">Generation failed — see details below.</div>`;
+      if (isFreshMissing) {
+        stage.innerHTML = `
+          <div class="empty-glyph" style="color:var(--rust);">!</div>
+          <div class="empty-text stage-error">"${escapeHtmlLite(missing!.modelId.split('/').pop() || missing!.modelId)}" hasn't been downloaded yet.</div>
+          <button class="ghost-btn small" id="openLocalModelsBtn" style="margin-top:8px;">Download it now</button>
+        `;
+        stage.querySelector('#openLocalModelsBtn')?.addEventListener('click', () => {
+          this.kernel.getEventBus().emit('ui:openLocalModels', missing!.modelId);
+        });
+      } else {
+        stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text stage-error">Generation failed — see details below.</div>`;
+      }
     }
     this.appendLog(message, 'error');
   }

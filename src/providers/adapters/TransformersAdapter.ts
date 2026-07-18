@@ -1,7 +1,25 @@
 import { BaseAdapter } from './BaseAdapter';
 import { ProviderConfig } from '../types';
 import { Logger } from '../../core/Logger';
-import { getSelectedModelId } from '../LocalModelRegistry';
+import { getSelectedModelId, LocalModelTask } from '../LocalModelRegistry';
+import { isInstalled, markUsed, registerWarmModelImpl } from '../LocalModelDownloadManager';
+
+/**
+ * Thrown by getPipeline() when a generation call needs a model that hasn't
+ * been downloaded yet — see LocalModelDownloadManager.ts's doc comment for
+ * the full root-cause writeup. `.code` lets ProviderReport.ts recognize
+ * this specific failure (see its 'Local model not downloaded' bucket) and
+ * give a message that says "go download it" instead of a generic error;
+ * `.modelId`/`.task` let the UI offer a direct one-click way to do that
+ * (see Manager.ts's lastLocalModelMissing tracking).
+ */
+export class ModelNotInstalledError extends Error {
+  code = 'LOCAL_MODEL_NOT_INSTALLED' as const;
+  constructor(public modelId: string, public task: LocalModelTask) {
+    super(`"${modelId.split('/').pop()}" hasn't been downloaded yet. Open Local Models in the Universal Provider Manager to download it, then try again.`);
+    this.name = 'ModelNotInstalledError';
+  }
+}
 
 /**
  * Transformers.js adapter — runs small open models entirely in-browser via
@@ -81,6 +99,31 @@ import { getSelectedModelId } from '../LocalModelRegistry';
  * in Keys & Providers, same as every other adapter (goal #3).
  *
  * ============================================================
+ * PHASE 8 — Performance (item 11), and what's deliberately NOT here.
+ * ============================================================
+ * WebGPU-first device detection with a real (not just feature-detected)
+ * WASM fallback, lazy CDN loading, one-pipeline-per-(task,model,device)
+ * reuse (no re-download/re-init per request — see pipelineCache below),
+ * and best-effort memory cleanup on model switch (disposeModelPipelines)
+ * were already solid before this pass; item 11's "tokenizer caching /
+ * graph caching / ONNX session reuse" are inherent side effects of that
+ * same pipelineCache reuse, not separate work needed. This pass added a
+ * cancellation check to call() below (see its own comment for exact scope
+ * — it covers the common "a faster provider already won the race" case,
+ * not true mid-generation abort).
+ *
+ * Deliberately NOT attempted: moving inference into a Web Worker so a
+ * long WASM/CPU generation can't block the main thread's UI responsiveness
+ * ("worker reuse" in the brief). Not skipped for lack of value — skipped
+ * because doing it correctly means a real postMessage protocol,
+ * transferring image/audio buffers across that boundary, and depending on
+ * transformers.js's own worker-mode API, none of which this pass could
+ * actually run in a browser to verify. Shipping that untested risked a
+ * worse outcome than not shipping it at all: a "fix" that silently breaks
+ * vision/audio input, or one nobody can tell isn't actually running in a
+ * worker. Left for a pass that can be tested against a real browser.
+ *
+ * ============================================================
  * PHASE 2 — LocalModelRegistry wiring
  * ============================================================
  * Every hardcoded model-ID literal below (e.g. the previous
@@ -150,7 +193,7 @@ function loadTransformersModule(log?: (msg: string, level?: 'info' | 'warn' | 'e
 // adapter, e.g. GPU blocklisted or out of memory) — actually request one.
 // ---------------------------------------------------------------------------
 let cachedDevice: 'webgpu' | 'wasm' | null = null;
-async function detectDevice(): Promise<'webgpu' | 'wasm'> {
+export async function detectDevice(): Promise<'webgpu' | 'wasm'> {
   if (cachedDevice) return cachedDevice;
   try {
     const gpu = (navigator as any)?.gpu;
@@ -182,12 +225,28 @@ const pipelineCache: Map<string, Promise<any>> = new Map();
 async function getPipeline(
   task: string,
   model: string,
-  log?: (msg: string, level?: 'info' | 'warn' | 'error') => void
+  log?: (msg: string, level?: 'info' | 'warn' | 'error') => void,
+  allowDownload: boolean = false,
+  onProgress?: (file: string, loaded: number, total: number, done: boolean) => void
 ): Promise<any> {
   const device = await detectDevice();
   const key = `${task}::${model}::${device}`;
   let p = pipelineCache.get(key);
   if (!p) {
+    // THE FIX for "pipeline must never trigger downloads" + the repeating
+    // download-loop bug (see LocalModelDownloadManager.ts's doc comment):
+    // a generation call (allowDownload defaults to false) that reaches
+    // here with nothing already in pipelineCache for this exact model
+    // means it has never been downloaded in this browser AND nothing else
+    // is currently downloading it — refuse immediately instead of starting
+    // a multi-hundred-MB download on the hot path of a timeboxed request.
+    // Only warmModel() (called exclusively from LocalModelDownloadManager,
+    // itself only triggered by an explicit Download click) passes
+    // allowDownload:true and is allowed past this point to start one.
+    if (!allowDownload && !isInstalled(model, task as LocalModelTask)) {
+      throw new ModelNotInstalledError(model, task as LocalModelTask);
+    }
+
     log?.(`Transformers.js: loading "${model}" for ${task} (${device === 'webgpu' ? 'WebGPU-accelerated' : 'WASM/CPU'})… first run downloads and caches the model, later runs reuse it instantly.`, 'info');
 
     // PHASE 5 — download manager UX (progress/speed/ETA/cache status).
@@ -209,6 +268,13 @@ async function getPipeline(
         // webgpu op isn't implemented for this model — belt and suspenders.
         progress_callback: (progress: any) => {
           const file = progress?.file || model;
+          // Lets LocalModelDownloadManager's pauseDownload/cancelDownload
+          // interrupt an in-progress warmModel() download cooperatively —
+          // see that module's "Pause" honesty note. No-op (onProgress is
+          // undefined) for ordinary generation calls.
+          if (progress?.status === 'progress' && typeof progress.loaded === 'number' && typeof progress.total === 'number') {
+            onProgress?.(file, progress.loaded, progress.total, progress.loaded >= progress.total);
+          }
           if (progress?.status === 'progress' && typeof progress.loaded === 'number' && typeof progress.total === 'number' && progress.total > 0) {
             anyBytesDownloaded = true;
             const now = Date.now();
@@ -252,13 +318,35 @@ async function getPipeline(
           : `Transformers.js: "${model}" loaded from cache — instant, no download needed.`,
         'info'
       );
+      markUsed(model, task as LocalModelTask);
       return pipe;
     });
     p.catch(() => pipelineCache.delete(key)); // allow retry on failure
     pipelineCache.set(key, p);
+  } else {
+    markUsed(model, task as LocalModelTask);
   }
   return p;
 }
+
+/**
+ * The ONLY function that should ever start a real download — called
+ * exclusively by LocalModelDownloadManager's queue worker, itself only
+ * reachable from an explicit "Download"/"Resume" click in the Local Models
+ * Manager UI. Thin wrapper over getPipeline(..., allowDownload:true) so the
+ * exact same single-flight pipelineCache and CDN-loading logic is reused
+ * rather than duplicated (item 6's "no duplicate download workers" rule).
+ */
+export async function warmModel(
+  modelId: string,
+  task: LocalModelTask,
+  _role: 'caption' | 'ocr' | undefined,
+  onProgress: (file: string, loaded: number, total: number, done: boolean) => void,
+  log?: (msg: string, level?: 'info' | 'warn' | 'error') => void
+): Promise<void> {
+  await getPipeline(task, modelId, log, true, onProgress);
+}
+registerWarmModelImpl(warmModel);
 
 /** Formats a byte count as a human-readable size — used by the download-progress reporting above. */
 function formatBytes(bytes: number): string {
@@ -346,6 +434,22 @@ export class TransformersAdapter extends BaseAdapter {
   }
 
   async call(provider: ProviderConfig, input: any, options?: any): Promise<any> {
+    // Item 11 cancellation support — honest scope: this is a real, useful
+    // check, not a complete one. It catches the common case where
+    // ProviderManager raced this provider against others (Hybrid routing
+    // mode, or any multi-candidate fallback) and a faster one already won
+    // BEFORE this local generation got a chance to start — exactly the
+    // same externalSignal?.aborted check BaseAdapter.fetchWithRetry already
+    // does for HTTP-based adapters, applied here so a local CPU/GPU
+    // generation doesn't start work that's already been abandoned. It does
+    // NOT abort generation that's already in progress: transformers.js's
+    // pipeline() call doesn't expose a documented, version-stable way to
+    // interrupt token generation mid-stream from the caller side, and
+    // guessing at an internal API here risked shipping something that
+    // silently does nothing (or breaks) against a real library version.
+    if (options?.signal?.aborted) {
+      throw new Error(`${provider.name} request was cancelled — a faster provider already responded.`);
+    }
     const mode = options?.mode || provider.type;
     const task = options?.task; // optional sub-task hint, e.g. 'ocr' within vision
     try {

@@ -49,6 +49,15 @@ export function summarizeReason(raw: string): string {
   if (s.includes('failed to load from cdn') || s.includes('cdn')) {
     return 'Not loaded';
   }
+  // Checked before the generic Ollama-flavored "isn't pulled"/"model not
+  // found" bucket below — a browser-local Transformers.js model that
+  // hasn't been downloaded yet is a different situation (fix: open Local
+  // Models and click Download) from an Ollama model that isn't pulled
+  // locally (fix: `ollama pull`), even though both start from "the model
+  // isn't there." See ModelNotInstalledError in TransformersAdapter.ts.
+  if (s.includes("hasn't been downloaded yet")) {
+    return 'Local model not downloaded';
+  }
   if (s.includes("isn't pulled") || s.includes('model not found') || s.includes("model '") && s.includes('not found')) {
     return 'Model not installed';
   }
@@ -87,6 +96,7 @@ const RECOVERY_SUGGESTIONS: Record<string, string> = {
   'WebGPU unavailable': 'try a different browser/device with WebGPU support, or switch to a WASM/CPU-compatible local model',
   'Not loaded': "check your connection — this provider's library failed to load from its CDN",
   'Model not installed': "check the model name in Keys & Providers, or (for Ollama) run 'ollama pull <model>' first",
+  'Local model not downloaded': 'open Local Models in the Universal Provider Manager and click Download for this model',
   'Blocked (bot-check)': 'this provider is blocking automated requests right now — try again later, or use a different provider',
   'Endpoint retired': "this provider's API has changed — check Keys & Providers for an updated endpoint, or switch providers",
   'Not installed / unreachable': 'make sure the local service (Ollama, etc.) is running, or check your connection',

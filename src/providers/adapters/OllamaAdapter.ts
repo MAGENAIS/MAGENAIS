@@ -24,6 +24,29 @@ export class OllamaAdapter extends BaseAdapter {
   supportsModelDiscovery = true;
 
   /**
+   * Fast, bounded liveness probe — the actual implementation testConnection
+   * uses, factored out so call() below can reuse the identical check as a
+   * preflight instead of a second, slightly-different copy of the same
+   * fetch-with-short-timeout logic.
+   */
+  private async probe(provider: ProviderConfig): Promise<{ ok: boolean; latencyMs: number; modelCount: number; httpStatus?: number }> {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    try {
+      const res = await fetch(this.url(provider, '/api/tags'), { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!res.ok) return { ok: false, latencyMs: Date.now() - startedAt, modelCount: 0, httpStatus: res.status };
+      const json = await res.json().catch(() => null);
+      const modelCount = Array.isArray(json?.models) ? json.models.length : 0;
+      return { ok: true, latencyMs: Date.now() - startedAt, modelCount };
+    } catch {
+      clearTimeout(timeoutId);
+      return { ok: false, latencyMs: Date.now() - startedAt, modelCount: 0 };
+    }
+  }
+
+  /**
    * Lightweight liveness probe. Deliberately uses a short, dedicated
    * timeout (not provider.timeoutMs, which defaults to 30s+ and would make
    * every health-check cycle feel sluggish) — a local server either answers
@@ -31,30 +54,24 @@ export class OllamaAdapter extends BaseAdapter {
    */
   async testConnection(provider: ProviderConfig): Promise<{ ok: boolean; message: string; testedAt: number; latencyMs?: number }> {
     const testedAt = Date.now();
-    const startedAt = Date.now();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1500);
-      const res = await fetch(this.url(provider, '/api/tags'), { signal: controller.signal });
-      clearTimeout(timeoutId);
-      const latencyMs = Date.now() - startedAt;
-      if (!res.ok) return { ok: false, message: `Ollama responded with HTTP ${res.status}.`, testedAt, latencyMs };
-      const json = await res.json().catch(() => null);
-      const count = Array.isArray(json?.models) ? json.models.length : 0;
-      return {
-        ok: true,
-        message: count > 0
-          ? `Ollama is running locally with ${count} model(s) installed.`
-          : 'Ollama is running locally, but no models are installed yet — run e.g. "ollama pull llama3.2".',
-        testedAt,
-        latencyMs,
-      };
-    } catch {
-      // No local Ollama install/daemon — this is the expected, common case
-      // for most users, not an error. The health monitor marks it
-      // unhealthy/unknown and the fallback chain moves on silently.
-      return { ok: false, message: 'Ollama is not running locally (this is normal if it is not installed).', testedAt };
+    const result = await this.probe(provider);
+    if (!result.ok) {
+      const message = result.httpStatus
+        ? `Ollama responded with HTTP ${result.httpStatus}.`
+        // No local Ollama install/daemon — this is the expected, common
+        // case for most users, not an error. The health monitor marks it
+        // unhealthy/unknown and the fallback chain moves on silently.
+        : 'Ollama is not running locally (this is normal if it is not installed).';
+      return { ok: false, message, testedAt, latencyMs: result.latencyMs };
     }
+    return {
+      ok: true,
+      message: result.modelCount > 0
+        ? `Ollama is running locally with ${result.modelCount} model(s) installed.`
+        : 'Ollama is running locally, but no models are installed yet — run e.g. "ollama pull llama3.2".',
+      testedAt,
+      latencyMs: result.latencyMs,
+    };
   }
 
   async fetchModels(provider: ProviderConfig): Promise<string[]> {
@@ -65,6 +82,26 @@ export class OllamaAdapter extends BaseAdapter {
   }
 
   async call(provider: ProviderConfig, input: any, options?: any): Promise<any> {
+    // ROOT CAUSE FIX (item 10 — "timeout after 60 seconds" with no faster
+    // failure path): the real /api/chat or /api/embeddings request below
+    // already fails fast when Ollama actively refuses the connection
+    // (ECONNREFUSED surfaces as a TypeError almost immediately) — but a
+    // firewall or VPN that silently DROPS the connection instead of
+    // refusing it produces no such fast signal; the browser has to wait
+    // out its own TCP-level connection timeout, which can run well past
+    // provider.timeoutMs's own AbortController (that only bounds how long
+    // THIS code waits, not how long the underlying OS-level TCP handshake
+    // takes to give up). Running the same 1.5s-bounded probe testConnection
+    // uses, first, means that specific failure mode is caught in ~1.5s with
+    // a clear message instead of consuming the full configured timeout.
+    const preflight = await this.probe(provider);
+    if (!preflight.ok) {
+      throw new Error(
+        preflight.httpStatus
+          ? `Ollama responded with HTTP ${preflight.httpStatus} — is the daemon healthy? (Restart it, or check its logs.)`
+          : `Ollama isn't reachable at ${this.url(provider, '')} — make sure it's installed and running (see ollama.com), or disable this provider in Keys & Providers if you don't use it.`
+      );
+    }
     const mode = options?.mode || provider.type || 'text';
     if (mode === 'embeddings') return this.embeddings(provider, input, options);
     // text, coding, agents, research, and vision(caption-only, no true
@@ -95,6 +132,12 @@ export class OllamaAdapter extends BaseAdapter {
       model,
       messages: [{ role: 'user', content: String(prompt) }],
       stream: false,
+      // Ollama unloads a model from memory 5 minutes after its last use by
+      // default — keeping it loaded for longer within an active MAGENAIS
+      // session means only the very first prompt (or the first one after a
+      // long gap) pays the full cold-load cost; every request within this
+      // window reuses the already-resident model.
+      keep_alive: options?.keepAlive || '10m',
       options: {
         temperature: options?.temperature ?? 0.8,
       },
@@ -175,7 +218,7 @@ export class OllamaAdapter extends BaseAdapter {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, prompt: String(text) }),
+        body: JSON.stringify({ model, prompt: String(text), keep_alive: options?.keepAlive || '10m' }),
       },
       provider,
       undefined,

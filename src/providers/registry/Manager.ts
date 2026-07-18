@@ -7,6 +7,7 @@ import { Logger, ProviderCallEvent } from '../../core/Logger';
 import { ProviderValidator } from '../../config/ProviderValidator';
 import { ProviderAttempt, formatProviderReport, formatAllFailedMessage } from '../ProviderReport';
 import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFailure } from '../HealthCooldown';
+import { LOCAL_ADAPTER_IDS, getRoutingMode } from '../RoutingMode';
 
 // ---------------------------------------------------------------------------
 // PHASE 3a — Offline mode detection.
@@ -18,16 +19,26 @@ import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFail
 // falling through to whatever local/offline-capable provider would have
 // answered immediately anyway — this skips straight to those instead.
 //
-// Adapters in this set run entirely on-device and need no network request
-// to do their job: 'transformers' (ONNX Runtime Web/Transformers.js),
-// 'webllm' (WebGPU, downloads once then runs fully offline), 'ollama'
-// (talks to localhost, not the internet — still reachable with no WAN
-// connectivity), 'browser-speech' (the Web Speech API — the synthesis half
-// runs on-device on every major browser; recognition can vary by browser
-// but degrades gracefully to an error if it also needs network it doesn't
-// have), and 'internal-fallback' (KenBurnsFallbackAdapter — pure
-// Canvas/client-side, see that file).
-const OFFLINE_CAPABLE_ADAPTERS = new Set(['transformers', 'webllm', 'ollama', 'browser-speech', 'internal-fallback']);
+// The actual adapter-id set (which adapters count as "local"/"offline-
+// capable") now lives in RoutingMode.ts as LOCAL_ADAPTER_IDS, shared with
+// the routing-mode filter added in raceForFirstSuccess's candidate pipeline
+// below — see that file's doc comment for why both use one definition.
+
+/**
+ * Structured mirror of TransformersAdapter's ModelNotInstalledError,
+ * duck-typed via `.code` (rather than importing that adapter class
+ * directly) so ProviderManager stays adapter-agnostic — the same
+ * arm's-length relationship it already has with every other adapter,
+ * which are registered by string id, not imported by class. Read via
+ * ProviderManager.getLastLocalModelMissing() by the Local Models Manager
+ * UI / Mode.renderError to offer a direct "Download it" action.
+ */
+export interface LocalModelMissingInfo {
+  modelId: string;
+  task: string;
+  provider: string;
+  at: number;
+}
 
 /**
  * CAVEAT: `navigator.onLine` is a coarse, sometimes-wrong signal (it can
@@ -69,6 +80,7 @@ export class ProviderManager {
   // data so a future migration can detect "this was written by an older
   // shape of ProviderManager" and adapt instead of guessing.
   private static readonly SCHEMA_VERSION = 2;
+  private lastLocalModelMissing: LocalModelMissingInfo | null = null;
 
   constructor(registry: ProviderRegistry, persistence: Persistence, eventBus: EventBus, legacyPersistence?: Persistence) {
     this.registry = registry;
@@ -377,7 +389,7 @@ export class ProviderManager {
   /**
    * Narrows a candidate list to offline-capable providers when the device
    * currently has no network connectivity — see the isOffline()/
-   * OFFLINE_CAPABLE_ADAPTERS doc comments above for what "offline-capable"
+   * LOCAL_ADAPTER_IDS doc comments above for what "offline-capable"
    * means and why `navigator.onLine` is only ever a hint, not a hard gate:
    * if narrowing would leave zero candidates, the original list is
    * returned unfiltered instead (try everything, same as being online,
@@ -388,10 +400,40 @@ export class ProviderManager {
     log?: (message: string, level?: 'info' | 'warn' | 'error') => void
   ): ProviderConfig[] {
     if (!isOffline()) return candidates;
-    const offlineOnly = candidates.filter(p => OFFLINE_CAPABLE_ADAPTERS.has(p.adapterId));
+    const offlineOnly = candidates.filter(p => LOCAL_ADAPTER_IDS.has(p.adapterId));
     if (offlineOnly.length === 0) return candidates;
     log?.('No internet connection detected — running in Offline Mode using local providers only (Local Transformers/WebLLM/Ollama/on-device speech).', 'info');
     return offlineOnly;
+  }
+
+  /**
+   * Narrows a candidate list per the person's chosen RoutingMode (item 7/13
+   * — see RoutingMode.ts's doc comment for the full root-cause writeup).
+   * Unlike filterForConnectivity above, this deliberately does NOT fall
+   * back to the unfiltered list when narrowing would leave zero candidates
+   * — 'local' silently falling back to racing cloud providers anyway would
+   * defeat the entire point of choosing it (guaranteed no-cost/offline/
+   * private execution). An empty result here is meant to surface as a
+   * clear "nothing available in this mode" error, not a silent bypass.
+   */
+  private applyRoutingMode(
+    candidates: ProviderConfig[],
+    log?: (message: string, level?: 'info' | 'warn' | 'error') => void
+  ): ProviderConfig[] {
+    const mode = getRoutingMode();
+    if (mode === 'hybrid') return candidates;
+    const filtered = mode === 'local'
+      ? candidates.filter(p => LOCAL_ADAPTER_IDS.has(p.adapterId))
+      : candidates.filter(p => !LOCAL_ADAPTER_IDS.has(p.adapterId));
+    if (filtered.length !== candidates.length) {
+      log?.(
+        `Routing mode is "${mode === 'local' ? 'Local Only' : 'Cloud Only'}" — ` +
+        `${candidates.length - filtered.length} otherwise-eligible provider(s) excluded ` +
+        `(change this in Keys & Providers if you want them included).`,
+        'info'
+      );
+    }
+    return filtered;
   }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: string): Promise<T> {
@@ -415,21 +457,28 @@ export class ProviderManager {
     log?: (message: string, level?: 'info' | 'warn' | 'error') => void
   ): Promise<any> {
     const candidates = this.filterForConnectivity(
-      router
-        .getSortedProviders(type)
-        .filter(p => p.noKeyNeeded || !!p.apiKey)
-        // A provider can be registered under type:'text' purely so
-        // callVision() can find it (see the `visionOnly` doc comment in
-        // types.ts) — it has no ability to answer a genuine text-generation
-        // request, so exclude it here to avoid a guaranteed, noisy failure
-        // eating a slot (and a real timeout window) in the fallback chain.
-        .filter(p => !p.visionOnly),
+      this.applyRoutingMode(
+        router
+          .getSortedProviders(type)
+          .filter(p => p.noKeyNeeded || !!p.apiKey)
+          // A provider can be registered under type:'text' purely so
+          // callVision() can find it (see the `visionOnly` doc comment in
+          // types.ts) — it has no ability to answer a genuine text-generation
+          // request, so exclude it here to avoid a guaranteed, noisy failure
+          // eating a slot (and a real timeout window) in the fallback chain.
+          .filter(p => !p.visionOnly),
+        log
+      ),
       log
     );
 
     if (candidates.length === 0) {
+      const mode = getRoutingMode();
       throw new Error(
-        `No configured/enabled provider is available for '${type}' — add an API key for at least one provider of this type in Keys & Providers.`
+        mode !== 'hybrid'
+          ? `No enabled '${type}' provider matches routing mode "${mode === 'local' ? 'Local Only' : 'Cloud Only'}" — ` +
+            `switch modes or add/enable a matching provider in Keys & Providers.`
+          : `No configured/enabled provider is available for '${type}' — add an API key for at least one provider of this type in Keys & Providers.`
       );
     }
 
@@ -586,6 +635,7 @@ export class ProviderManager {
             responseTime: latencyMs,
           });
           attempts.push({ name: provider.name, status: 'ok' });
+          this.lastLocalModelMissing = null;
           const isWinner = !winnerFound;
           Logger.event({
             requestId, provider: provider.name, model: modelForThisProvider, latencyMs,
@@ -605,12 +655,22 @@ export class ProviderManager {
           settled++;
           const latencyMs = Date.now() - attemptStartedAt;
           const message = err?.message || String(err);
-          this.registry.updateHealth(provider.id, {
-            status: 'unhealthy',
-            lastCheck: Date.now(),
-            responseTime: latencyMs,
-            lastError: message,
-          });
+          const isModelMissing = err?.code === 'LOCAL_MODEL_NOT_INSTALLED';
+          if (isModelMissing) {
+            // Not a broken provider — it just needs an explicit download
+            // (see LocalModelDownloadManager.ts). Marking it 'unhealthy'
+            // here would eventually trigger HealthCooldown and start
+            // skipping a perfectly good local provider purely because
+            // nobody has clicked Download yet, which is misleading.
+            this.lastLocalModelMissing = { modelId: err.modelId, task: err.task, provider: provider.name, at: Date.now() };
+          } else {
+            this.registry.updateHealth(provider.id, {
+              status: 'unhealthy',
+              lastCheck: Date.now(),
+              responseTime: latencyMs,
+              lastError: message,
+            });
+          }
           attempts.push({ name: provider.name, status: 'error', detail: message });
           Logger.event({
             requestId, provider: provider.name, model: modelForThisProvider, latencyMs,
@@ -661,21 +721,31 @@ export class ProviderManager {
     // guarantees this list is never empty on a fresh install.
     const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'transformers', 'ollama'];
     const candidates = this.filterForConnectivity(
-      router
-        .getSortedProviders('text')
-        .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
-        // 'transformers' now backs two distinct provider entries sharing
-        // this one adapterId — a genuine text-generation one (see
-        // builtin-transformers-text) and an image-captioning one (see
-        // builtin-transformers-vision, visionOnly:true). Only the latter
-        // belongs here; including the text entry would try to run its
-        // chat model through an image-to-text pipeline and guarantee a
-        // failure on every single Vision request.
-        .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true),
+      this.applyRoutingMode(
+        router
+          .getSortedProviders('text')
+          .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
+          // 'transformers' now backs two distinct provider entries sharing
+          // this one adapterId — a genuine text-generation one (see
+          // builtin-transformers-text) and an image-captioning one (see
+          // builtin-transformers-vision, visionOnly:true). Only the latter
+          // belongs here; including the text entry would try to run its
+          // chat model through an image-to-text pipeline and guarantee a
+          // failure on every single Vision request.
+          .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true),
+        log
+      ),
       log
     );
 
     if (candidates.length === 0) {
+      const routingMode = getRoutingMode();
+      if (routingMode !== 'hybrid') {
+        throw new Error(
+          `No vision-capable provider matches routing mode "${routingMode === 'local' ? 'Local Only' : 'Cloud Only'}" — ` +
+          `switch modes in Keys & Providers, or enable a matching vision provider.`
+        );
+      }
       // Diagnose the actual cause instead of one generic message — in
       // particular, distinguish "Puter exists but its checkbox is off"
       // (a one-click fix) from "Puter isn't in the provider list at all"
@@ -756,6 +826,17 @@ export class ProviderManager {
   getProviders(type?: string, enabledOnly?: boolean) {
     return this.registry.getProviders(type as any, enabledOnly);
   }
+
+  /**
+   * The most recent "local model isn't downloaded yet" failure (see
+   * ModelNotInstalledError in TransformersAdapter.ts and raceForFirstSuccess's
+   * catch handler below), if the very last call hit one — cleared as soon
+   * as any call succeeds. Lets a Mode offer a direct "Download it" button
+   * instead of just a text message.
+   */
+  getLastLocalModelMissing(): LocalModelMissingInfo | null {
+    return this.lastLocalModelMissing;
+  }
   getProvider(id: string) {
     return this.registry.getProvider(id);
   }
@@ -763,6 +844,28 @@ export class ProviderManager {
     this.registry.updateProvider(id, updates);
     // Auto-save? Could be debounced.
     this.saveProviders();
+  }
+
+  /** Whether this adapter can list a person's actually-installed models (Ollama today) — used to decide whether to show a "Discover" button. */
+  adapterSupportsModelDiscovery(adapterId: string): boolean {
+    return !!this.registry.getAdapter(adapterId)?.supportsModelDiscovery;
+  }
+
+  /**
+   * Item 10's "auto-discover installed models" — OllamaAdapter.fetchModels()
+   * (and Adapter.supportsModelDiscovery generally) already existed on the
+   * interface but nothing in the UI ever called it; this is the missing
+   * wiring, mirroring testProvider()'s exact provider/adapter lookup so
+   * the Local Models Manager UI (or any future caller) has one clean entry
+   * point instead of reaching into the registry/adapter internals itself.
+   */
+  async fetchModelsFor(id: string): Promise<string[]> {
+    const provider = this.registry.getProvider(id);
+    const adapter = provider ? this.registry.getAdapter(provider.adapterId) : undefined;
+    if (!provider || !adapter?.supportsModelDiscovery || !adapter.fetchModels) {
+      throw new Error('This provider doesn\'t support model discovery.');
+    }
+    return adapter.fetchModels(provider);
   }
 
   /**

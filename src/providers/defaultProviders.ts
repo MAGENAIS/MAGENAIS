@@ -33,8 +33,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: true,
     isPreset: true,
     isBuiltIn: true,
-    notes: 'Requirement #4 local-provider default: if the free, open-source Ollama runtime (ollama.com) is installed and running on this machine, MAGENAIS detects it automatically (a fast /api/tags health check, see OllamaAdapter.testConnection) and routes Text, Coding, Agents, and Research synthesis through it first, completely private, completely free, no signup, no API key. If Ollama is not installed, this entrys health check simply fails and the fallback chain moves on to WebLLM/Transformers.js in the browser, then Puter, then any keyed provider you enable. Pull a model with e.g. "ollama pull llama3.2" (general) or "ollama pull qwen2.5-coder" (coding, used automatically for Coding-tab requests, see CodingNodeExecutor).',
-    timeoutMs: 60000,
+    notes: 'Requirement #4 local-provider default: if the free, open-source Ollama runtime (ollama.com) is installed and running on this machine, MAGENAIS detects it automatically (a fast /api/tags health check, see OllamaAdapter.testConnection) and routes Text, Coding, Agents, and Research synthesis through it first, completely private, completely free, no signup, no API key. If Ollama is not installed, this entrys health check simply fails and the fallback chain moves on to WebLLM/Transformers.js in the browser, then Puter, then any keyed provider you enable. Pull a model with e.g. "ollama pull llama3.2" (general) or "ollama pull qwen2.5-coder" (coding, used automatically for Coding-tab requests, see CodingNodeExecutor). ROOT CAUSE FIX (item 10 — "timeout after 60 seconds"): raised from 60000ms — a model Ollama hasn\'t already loaded into RAM/VRAM (first request after the daemon starts, or after keep_alive expired) can genuinely take longer than 60s to load on modest hardware, especially anything above ~7B parameters on CPU-only inference; 120000ms gives that cold load real headroom. Two companion fixes reduce how often this ceiling is even approached: OllamaAdapter.call() now runs a fast 1.5s-bounded preflight probe before the real request, so a genuinely unreachable Ollama (wrong port, firewall silently dropping the connection) fails in ~1.5s instead of consuming this whole window; and every chat/embeddings request now sends keep_alive so a model stays resident in memory between requests instead of unloading after Ollama\'s own 5-minute default, so only the very first prompt in a while pays the cold-load cost at all.',
+    timeoutMs: 120000,
     retries: 1,
   },
   {
@@ -50,8 +50,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: true,
     isPreset: true,
     isBuiltIn: true,
-    notes: 'Synthesizes the free papers already gathered from Semantic Scholar/OpenAlex/arXiv (see legacy/research.ts) into an answer, using a local Ollama model when available, no key, no signup, nothing leaves this machine.',
-    timeoutMs: 60000,
+    notes: 'Synthesizes the free papers already gathered from Semantic Scholar/OpenAlex/arXiv (see legacy/research.ts) into an answer, using a local Ollama model when available, no key, no signup, nothing leaves this machine. See builtin-ollama-text above for why timeoutMs is 120000, not 60000.',
+    timeoutMs: 120000,
     retries: 1,
   },
   {
@@ -67,8 +67,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: true,
     isPreset: true,
     isBuiltIn: true,
-    notes: 'Reserved for future dedicated agent tool-use requests; the current Agents-tab pipeline steps route through the far larger text provider pool (this entry included) rather than this narrower agents pool, see AgentsMode/Node.ts.',
-    timeoutMs: 60000,
+    notes: 'Reserved for future dedicated agent tool-use requests; the current Agents-tab pipeline steps route through the far larger text provider pool (this entry included) rather than this narrower agents pool, see AgentsMode/Node.ts. See builtin-ollama-text above for why timeoutMs is 120000, not 60000.',
+    timeoutMs: 120000,
     retries: 1,
   },
   {

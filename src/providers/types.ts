@@ -72,6 +72,8 @@ export interface ProviderConfig {
   lastUsed?: number;
   successRate?: number;         // 0-1
   averageLatency?: number;      // ms
+  /** Cumulative count of calls that failed specifically because they timed out (classifyFailure's 'timeout' category) — unlike ProviderHealth.failureCount, this never resets on a success, so it answers "has this been timing out a lot this session" even after one recovers. Runtime-only, like the two fields above. */
+  timeoutCount?: number;
   capabilities?: string[];      // e.g. ['vision', 'audio']
   quotaRemaining?: number;
   costPerUnit?: number;         // arbitrary unit

@@ -257,6 +257,12 @@ export class App {
     this.eventBus.on('plugin:registerMenu', (menu) => this.handlePluginMenu(menu));
     this.eventBus.on('plugin:registerCommand', (command) => this.handlePluginCommand(command));
     this.eventBus.on('plugin:registerPanel', (panel) => this.handlePluginPanel(panel));
+
+    // See Mode.ts's renderError ("Download it now" button) and
+    // ProviderManager.getLastLocalModelMissing() — the model-missing signal
+    // itself is tracked in ProviderManager, this just routes the resulting
+    // click to the right UI.
+    this.eventBus.on('ui:openLocalModels', (modelId: string) => this.settingsModal.focusLocalModel(modelId));
     // Enterprise / AIOS events (optional)
     this.eventBus.on('project:selected', (id) => this.updateStatus(`Project: ${id}`, ''));
     this.eventBus.on('memory:set', ({ key }) => this.logStatus(`Memory updated: ${key}`));
