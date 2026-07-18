@@ -1,4 +1,4 @@
-import { ProviderConfig, Adapter, AdapterCapabilities } from '../types';
+import { ProviderConfig, Adapter, AdapterCapabilities, ProviderTestResult } from '../types';
 import { Logger } from '../../core/Logger';
 import { toProxiedRequest, redactUrlForLogging } from './ProxyClient';
 
@@ -13,19 +13,26 @@ export abstract class BaseAdapter implements Adapter {
 
   /**
    * Test connection by making a lightweight request.
-   * Default implementation returns ok: true if the provider has an API key (or noKeyNeeded) and baseUrl.
-   * Override for specific behaviour.
+   * Default implementation only checks that the provider has an API key
+   * (or noKeyNeeded) and baseUrl — it does NOT make a real network request,
+   * since this default is shared by browser-native adapters (WebLLM,
+   * Transformers.js, browser speech) where "is it configured" is a
+   * meaningfully different (and cheaper/instant) question than "can it
+   * reach a remote API." OpenAICompatibleAdapter overrides this with a
+   * real minimal chat/completions call — see that file for the Phase 7
+   * "Provider Testing" implementation most registry entries actually use.
    */
-  async testConnection(provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
+  async testConnection(provider: ProviderConfig): Promise<ProviderTestResult> {
+    const testedAt = Date.now();
     if (!provider.baseUrl && provider.authType !== 'none') {
-      return { ok: false, message: 'Base URL is required.' };
+      return { ok: false, message: 'Base URL is required.', testedAt, category: 'other' };
     }
     if (!provider.apiKey && !provider.noKeyNeeded) {
-      return { ok: false, message: 'API key is required.' };
+      return { ok: false, message: 'API key is required.', testedAt, category: 'auth' };
     }
     // If baseUrl is set and we have a key, we could attempt a lightweight request.
     // For now, just assume healthy.
-    return { ok: true, message: 'Provider configuration looks valid.' };
+    return { ok: true, message: 'Provider configuration looks valid.', testedAt };
   }
 
   /**
@@ -116,7 +123,8 @@ export abstract class BaseAdapter implements Adapter {
     init: RequestInit,
     provider: ProviderConfig,
     retries?: number,
-    externalSignal?: AbortSignal
+    externalSignal?: AbortSignal,
+    onRetry?: (attempt: number) => void
   ): Promise<Response> {
     if (externalSignal?.aborted) {
       throw new Error(`${provider.name} request was cancelled before it started.`);
@@ -175,6 +183,7 @@ export abstract class BaseAdapter implements Adapter {
         if (attempt > maxRetries) {
           throw this.describeFetchFailure(err, provider, url, timedOut, timeout);
         }
+        onRetry?.(attempt);
         // Simple backoff
         const backoff = Math.min(1000 * Math.pow(2, attempt), 8000);
         await new Promise(r => setTimeout(r, backoff));

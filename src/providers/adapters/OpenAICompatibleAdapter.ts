@@ -1,5 +1,6 @@
 import { BaseAdapter } from './BaseAdapter';
-import { ProviderConfig } from '../types';
+import { ProviderConfig, ProviderTestResult } from '../types';
+import { classifyFailure } from '../HealthCooldown';
 
 /**
  * Generic REST adapter for any provider that speaks a plain OpenAI-shaped API
@@ -17,6 +18,51 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
   label = 'OpenAI-compatible';
   browserSafe = true;
   supportsModelDiscovery = true;
+
+  /**
+   * PHASE 7 — Provider Testing. BaseAdapter's default testConnection only
+   * checks that a baseUrl/key are *present* — it never actually calls the
+   * provider, so a typo'd key or a renamed model silently reports "looks
+   * valid" right up until the first real generation fails. This makes one
+   * minimal, cheap chat/completions request (max_tokens:1, a one-word
+   * prompt) through the exact same request()/fetchWithRetry() path every
+   * real call uses — including the CORS proxy routing from Phase 4 — so a
+   * pass here means URL, auth, endpoint, and the configured model all
+   * genuinely work together, not just that fields are non-empty.
+   */
+  async testConnection(provider: ProviderConfig): Promise<ProviderTestResult> {
+    const testedAt = Date.now();
+    if (!provider.baseUrl && provider.authType !== 'none') {
+      return { ok: false, message: 'Base URL is required.', testedAt, category: 'other' };
+    }
+    if (!provider.apiKey && !provider.noKeyNeeded) {
+      return { ok: false, message: 'API key is required.', testedAt, category: 'auth' };
+    }
+
+    const model = provider.defaultModel || 'default';
+    const startedAt = Date.now();
+    try {
+      const response = await this.request(provider, this.url(provider, '/chat/completions'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'Hi' }],
+          max_tokens: 1,
+        }),
+      });
+      const latencyMs = Date.now() - startedAt;
+      const json = await response.json();
+      if (!json.choices?.[0]) {
+        return { ok: false, message: `Provider responded (HTTP ${response.status}) but not in the expected chat/completions shape — is this really an OpenAI-compatible endpoint?`, latencyMs, checkedModel: model, testedAt, category: 'other' };
+      }
+      return { ok: true, message: `Chat completion succeeded (HTTP ${response.status}).`, latencyMs, checkedModel: model, testedAt };
+    } catch (err: any) {
+      const latencyMs = Date.now() - startedAt;
+      const message = err?.message || String(err);
+      return { ok: false, message, latencyMs, checkedModel: model, testedAt, category: classifyFailure(message) };
+    }
+  }
 
   async call(provider: ProviderConfig, input: any, options?: any): Promise<any> {
     const mode = options?.mode || provider.type || 'text';
@@ -46,10 +92,10 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
     return provider.baseUrl.replace(/\/$/, '') + path;
   }
 
-  private async request(provider: ProviderConfig, url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  private async request(provider: ProviderConfig, url: string, init: RequestInit, signal?: AbortSignal, onRetry?: (attempt: number) => void): Promise<Response> {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
     const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, url, headers);
-    const response = await this.fetchWithRetry(finalUrl, { ...init, headers: finalHeaders }, provider, undefined, signal);
+    const response = await this.fetchWithRetry(finalUrl, { ...init, headers: finalHeaders }, provider, undefined, signal, onRetry);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
@@ -87,10 +133,25 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
         temperature: options?.temperature ?? 0.8,
         max_tokens: options?.maxTokens ?? 1024,
       }),
-    }, options?.signal);
+    }, options?.signal, options?.onRetry);
     const json = await response.json();
     const text = json.choices?.[0]?.message?.content;
     if (!text) throw new Error(`empty response from ${provider.name}`);
+    // PHASE 6 — Tokens: every OpenAI-compatible chat/completions response
+    // includes a `usage` object; this was parsed for `choices` and the
+    // rest silently discarded. Reported through the same kind of optional
+    // side-channel callback `options.log` already used for narrative
+    // logging, rather than changing this method's return type (still just
+    // the plain string every caller of callText already expects) — see
+    // ProviderCallEvent/Logger.event in ProviderManager.raceForFirstSuccess,
+    // which is what actually consumes this.
+    if (json.usage) {
+      options?.onUsage?.({
+        prompt: json.usage.prompt_tokens,
+        completion: json.usage.completion_tokens,
+        total: json.usage.total_tokens,
+      });
+    }
     return text;
   }
 

@@ -322,9 +322,10 @@ export class TransformersAdapter extends BaseAdapter {
    * catching a blocked/unreachable CDN or a restrictive CSP here instead
    * of only surfacing it as a confusing failure on first real use.
    */
-  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
+  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string; testedAt: number }> {
+    const testedAt = Date.now();
     if (typeof WebAssembly === 'undefined') {
-      return { ok: false, message: "This browser doesn't support WebAssembly, which Transformers.js requires." };
+      return { ok: false, message: "This browser doesn't support WebAssembly, which Transformers.js requires.", testedAt };
     }
     try {
       await Promise.race([
@@ -332,7 +333,7 @@ export class TransformersAdapter extends BaseAdapter {
         new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), 6000)),
       ]);
     } catch (err: any) {
-      return { ok: false, message: `Transformers.js library couldn't be loaded: ${err?.message || err}` };
+      return { ok: false, message: `Transformers.js library couldn't be loaded: ${err?.message || err}`, testedAt };
     }
     const device = await detectDevice();
     return {
@@ -340,6 +341,7 @@ export class TransformersAdapter extends BaseAdapter {
       message: device === 'webgpu'
         ? 'Ready — WebGPU acceleration available. Models download on first use and are cached afterward.'
         : 'Ready — running on WASM/CPU (no WebGPU adapter available, so this will be slower). Models download on first use and are cached afterward.',
+      testedAt,
     };
   }
 

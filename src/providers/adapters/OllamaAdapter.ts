@@ -29,13 +29,16 @@ export class OllamaAdapter extends BaseAdapter {
    * every health-check cycle feel sluggish) — a local server either answers
    * near-instantly or isn't there at all.
    */
-  async testConnection(provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
+  async testConnection(provider: ProviderConfig): Promise<{ ok: boolean; message: string; testedAt: number; latencyMs?: number }> {
+    const testedAt = Date.now();
+    const startedAt = Date.now();
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 1500);
       const res = await fetch(this.url(provider, '/api/tags'), { signal: controller.signal });
       clearTimeout(timeoutId);
-      if (!res.ok) return { ok: false, message: `Ollama responded with HTTP ${res.status}.` };
+      const latencyMs = Date.now() - startedAt;
+      if (!res.ok) return { ok: false, message: `Ollama responded with HTTP ${res.status}.`, testedAt, latencyMs };
       const json = await res.json().catch(() => null);
       const count = Array.isArray(json?.models) ? json.models.length : 0;
       return {
@@ -43,12 +46,14 @@ export class OllamaAdapter extends BaseAdapter {
         message: count > 0
           ? `Ollama is running locally with ${count} model(s) installed.`
           : 'Ollama is running locally, but no models are installed yet — run e.g. "ollama pull llama3.2".',
+        testedAt,
+        latencyMs,
       };
     } catch {
       // No local Ollama install/daemon — this is the expected, common case
       // for most users, not an error. The health monitor marks it
       // unhealthy/unknown and the fallback chain moves on silently.
-      return { ok: false, message: 'Ollama is not running locally (this is normal if it is not installed).' };
+      return { ok: false, message: 'Ollama is not running locally (this is normal if it is not installed).', testedAt };
     }
   }
 

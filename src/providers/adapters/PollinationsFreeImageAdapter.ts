@@ -24,12 +24,12 @@ export class PollinationsFreeImageAdapter extends BaseAdapter {
   browserSafe = true;
   supportsModelDiscovery = false;
 
-  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
+  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string; testedAt: number }> {
     // No auth/handshake endpoint to probe safely without generating a real
     // (rate/quota-consuming) image — treat "configured with a base URL" as
     // healthy, and let real usage surface any transient outage through the
     // normal fallback-chain error path.
-    return { ok: true, message: 'No key required — ready to generate.' };
+    return { ok: true, message: 'No key required — ready to generate.', testedAt: Date.now() };
   }
 
   async call(provider: ProviderConfig, input: any, options?: any): Promise<string> {

@@ -19,6 +19,8 @@ import {
 } from '../providers/LocalModelRegistry';
 import { disposeModelPipelines } from '../providers/adapters/TransformersAdapter';
 import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel } from '../providers/HealthCooldown';
+import { Config } from '../core/Config';
+import { Logger } from '../core/Logger';
 
 /**
  * Maps a ProviderConfig backed by TransformersAdapter to the
@@ -65,6 +67,18 @@ function escapeHtml(s: string): string {
   const div = document.createElement('div');
   div.textContent = s ?? '';
   return div.innerHTML;
+}
+
+/** "3m ago" / "2h ago" — used by the Test button's persisted-result display. */
+function timeAgo(ts: number): string {
+  const seconds = Math.floor((Date.now() - ts) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 function blankProvider(type: ProviderType = 'text'): ProviderConfig {
@@ -139,6 +153,19 @@ export class SettingsModal {
         </details>
 
         <div class="divider"></div>
+        <details class="log-details" id="diagnosticsDetails">
+          <summary>Diagnostics</summary>
+          <div style="padding:10px 12px 12px; display:flex; flex-direction:column; gap:10px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="debugModeToggle">
+              <span>Debug mode — verbose logging in the browser console (request IDs, provider/model, latency, tokens, retries, failure reasons)</span>
+            </label>
+            <p class="hint">Off by default to keep the console quiet during normal use. A failed provider call is always logged
+              regardless of this setting — this only adds the successful-call detail on top, for troubleshooting.</p>
+          </div>
+        </details>
+
+        <div class="divider"></div>
         <button class="ghost-btn" id="addProviderBtn" style="width:100%;">+ Add custom provider</button>
 
         <div class="divider"></div>
@@ -169,6 +196,17 @@ export class SettingsModal {
     );
     el.querySelector('#resetProvidersBtn')?.addEventListener('click', () => this.handleReset());
     el.querySelector('#clearDeviceDataBtn')?.addEventListener('click', () => this.handleClearData());
+
+    const debugToggle = el.querySelector('#debugModeToggle') as HTMLInputElement | null;
+    if (debugToggle) {
+      Config.load().then((config) => { debugToggle.checked = config.logLevel === 'debug'; });
+      debugToggle.addEventListener('change', async () => {
+        const config = await Config.load();
+        config.logLevel = debugToggle.checked ? 'debug' : 'info';
+        await Config.save(config);
+        Logger.configure(config.logLevel);
+      });
+    }
   }
 
   private renderList(): void {
@@ -211,12 +249,25 @@ export class SettingsModal {
       const cooldownBadge = isInCooldown(p.health)
         ? ` · <span style="color:var(--rust);" title="Repeated failures — this provider is being skipped until it cools down, so it doesn't keep failing the same way on every request.">cooling down (${cooldownRemainingLabel(p.health)} left) — ${escapeHtml(cooldownReasonLabel(p.health!.failureCategory as any))}</span>`
         : '';
+      // PHASE 7 — Provider Testing: shows the persisted result of the last
+      // "Test" click (ProviderConfig.lastTestResult, saved via
+      // ProviderManager.testProvider), so it's still visible after closing
+      // and reopening Keys & Providers, not just for the current session.
+      const testResultLine = p.lastTestResult
+        ? `<div class="provider-meta" data-test-result style="margin-top:2px; color:${p.lastTestResult.ok ? 'var(--moss)' : 'var(--rust)'};">
+            ${p.lastTestResult.ok ? '✓' : '✗'} ${escapeHtml(p.lastTestResult.message)}
+            ${p.lastTestResult.latencyMs !== undefined ? ` · ${p.lastTestResult.latencyMs}ms` : ''}
+            ${p.lastTestResult.healthScore !== undefined ? ` · health ${p.lastTestResult.healthScore}/100` : ''}
+            · tested ${timeAgo(p.lastTestResult.testedAt)}
+          </div>`
+        : '<div class="provider-meta" data-test-result></div>';
 
       row.innerHTML = `
         <div class="provider-row-top">
           <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
             <span class="provider-name" style="color:${statusColor};">${escapeHtml(p.name)}</span>
             <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}${cooldownBadge}</span>
+            ${testResultLine}
           </div>
           <label style="display:flex; align-items:center; gap:5px; cursor:pointer; flex-shrink:0;" title="${p.noKeyNeeded || p.isBuiltIn || p.apiKey ? 'Enable or disable this provider' : 'Enabled providers activate automatically once you add an API key below'}">
             <input type="checkbox" data-action="toggle" ${p.enabled ? 'checked' : ''} style="width:auto;">
@@ -231,6 +282,7 @@ export class SettingsModal {
         </div>`}
         <div style="display:flex; gap:6px;">
           <button class="ghost-btn small" data-action="edit">Edit</button>
+          <button class="ghost-btn small" data-action="test">Test</button>
           <button class="ghost-btn small" data-action="duplicate">Duplicate</button>
           ${p.isBuiltIn ? '' : '<button class="ghost-btn small" data-action="delete">Delete</button>'}
         </div>
@@ -272,6 +324,28 @@ export class SettingsModal {
       });
 
       row.querySelector('[data-action="edit"]')?.addEventListener('click', () => this.openEditor(p, false));
+      const testBtn = row.querySelector('[data-action="test"]') as HTMLButtonElement | null;
+      testBtn?.addEventListener('click', async () => {
+        const resultEl = row.querySelector('[data-test-result]') as HTMLElement | null;
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing…';
+        if (resultEl) { resultEl.style.color = 'var(--ink-faint)'; resultEl.textContent = 'Testing…'; }
+        try {
+          const result = await manager.testProvider(p.id);
+          p.lastTestResult = result;
+          if (resultEl) {
+            resultEl.style.color = result.ok ? 'var(--moss)' : 'var(--rust)';
+            resultEl.textContent =
+              `${result.ok ? '✓' : '✗'} ${result.message}` +
+              (result.latencyMs !== undefined ? ` · ${result.latencyMs}ms` : '') +
+              (result.healthScore !== undefined ? ` · health ${result.healthScore}/100` : '') +
+              ` · tested just now`;
+          }
+        } finally {
+          testBtn.disabled = false;
+          testBtn.textContent = 'Test';
+        }
+      });
       row.querySelector('[data-action="duplicate"]')?.addEventListener('click', () => {
         const clone: ProviderConfig = {
           ...p,

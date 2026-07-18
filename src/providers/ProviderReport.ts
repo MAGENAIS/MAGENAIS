@@ -73,6 +73,32 @@ export function summarizeReason(raw: string): string {
 }
 
 /**
+ * PHASE 6 — meaningful recovery suggestions, one per summarizeReason()
+ * label. Concrete and actionable rather than "check your settings" —
+ * each one names the exact place to look (Keys & Providers, the
+ * provider's own dashboard, a local service) and, where relevant, why.
+ */
+const RECOVERY_SUGGESTIONS: Record<string, string> = {
+  'Missing API Key': 'add an API key for one of the providers above in Keys & Providers',
+  'Invalid API Key': "double-check the affected provider's API key in Keys & Providers — it may be expired, revoked, or pasted incorrectly",
+  'Credits exhausted': "add billing/credits on the provider's own dashboard, or switch to a different provider in Keys & Providers",
+  'Rate limited': 'wait a short while before trying again, or enable a second provider as a fallback in Keys & Providers',
+  'Timeout': "check your connection, or increase the affected provider's Timeout in Keys & Providers if it's usually just slow",
+  'WebGPU unavailable': 'try a different browser/device with WebGPU support, or switch to a WASM/CPU-compatible local model',
+  'Not loaded': "check your connection — this provider's library failed to load from its CDN",
+  'Model not installed': "check the model name in Keys & Providers, or (for Ollama) run 'ollama pull <model>' first",
+  'Blocked (bot-check)': 'this provider is blocking automated requests right now — try again later, or use a different provider',
+  'Endpoint retired': "this provider's API has changed — check Keys & Providers for an updated endpoint, or switch providers",
+  'Not installed / unreachable': 'make sure the local service (Ollama, etc.) is running, or check your connection',
+  'Not supported': "this provider doesn't support this type of request — pick a different one in Keys & Providers",
+};
+
+/** Returns a recovery suggestion for a summarizeReason() label, or null if there's nothing more specific to say than the generic fallback. */
+export function recoverySuggestionFor(label: string): string | null {
+  return RECOVERY_SUGGESTIONS[label] || null;
+}
+
+/**
  * Render a list of attempts as the ✓ / ⚠ checklist.
  */
 export function formatProviderReport(attempts: ProviderAttempt[]): string {
@@ -89,12 +115,36 @@ export function formatProviderReport(attempts: ProviderAttempt[]): string {
  * Build the message used when every candidate for a type failed — the
  * checklist plus one actionable closing line, instead of a bare stack of
  * raw error strings.
+ *
+ * PHASE 6: the closing line now reflects what actually went wrong instead
+ * of always being the same generic "add an API key" text — e.g. if every
+ * failure here was a timeout, the suggestion is about connectivity/timeout
+ * settings, not a nudge to add a key that isn't the problem.
  */
 export function formatAllFailedMessage(type: string, attempts: ProviderAttempt[]): string {
   const report = formatProviderReport(attempts);
-  return (
-    `No provider could complete this '${type}' request. Here's what was tried:\n${report}\n\n` +
-    `Generation stops here because every available provider was skipped or failed — enable a local/browser option ` +
-    `(Ollama, WebLLM) or add an API key for one of the providers above in Keys & Providers, then try again.`
-  );
+  const failureLabels = attempts
+    .filter(a => a.status !== 'ok')
+    .map(a => summarizeReason(a.detail || 'unavailable'));
+  const mostCommonLabel = mostCommon(failureLabels);
+  const suggestion = mostCommonLabel ? recoverySuggestionFor(mostCommonLabel) : null;
+  const closingLine = suggestion
+    ? `Generation stops here because every available provider was skipped or failed — most were "${mostCommonLabel}", so try this: ${suggestion}.`
+    : `Generation stops here because every available provider was skipped or failed — enable a local/browser option ` +
+      `(Ollama, WebLLM) or add an API key for one of the providers above in Keys & Providers, then try again.`;
+  return `No provider could complete this '${type}' request. Here's what was tried:\n${report}\n\n${closingLine}`;
+}
+
+/** Most frequent string in a list, ties broken by first occurrence — used to pick which failure category the closing suggestion should address. */
+function mostCommon(items: string[]): string | null {
+  if (items.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item, (counts.get(item) || 0) + 1);
+  let best: string = items[0];
+  let bestCount = 0;
+  for (const item of items) {
+    const count = counts.get(item)!;
+    if (count > bestCount) { best = item; bestCount = count; }
+  }
+  return best;
 }

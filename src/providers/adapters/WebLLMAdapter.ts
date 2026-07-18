@@ -82,11 +82,12 @@ export class WebLLMAdapter extends BaseAdapter {
    * unacceptably expensive/disruptive). The real "does this actually work"
    * signal happens lazily on first real `call()`.
    */
-  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
+  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string; testedAt: number }> {
+    const testedAt = Date.now();
     if (typeof navigator === 'undefined' || !(navigator as any).gpu) {
-      return { ok: false, message: "This browser doesn't expose WebGPU — WebLLM needs a WebGPU-capable browser (e.g. current Chrome/Edge)." };
+      return { ok: false, message: "This browser doesn't expose WebGPU — WebLLM needs a WebGPU-capable browser (e.g. current Chrome/Edge).", testedAt };
     }
-    return { ok: true, message: 'WebGPU is available — a model will download and initialize on first use.' };
+    return { ok: true, message: 'WebGPU is available — a model will download and initialize on first use.', testedAt };
   }
 
   async call(provider: ProviderConfig, input: any, options?: any): Promise<string> {

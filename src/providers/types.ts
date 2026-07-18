@@ -61,6 +61,12 @@ export interface ProviderConfig {
   // OpenAI-compatible (or other) provider needs to work around a CORS
   // block; no adapter-specific code is required.
   requiresServerProxy?: boolean;
+  // PHASE 7 — Provider Testing: result of the last "Test" click in Keys &
+  // Providers (see ProviderManager.testProvider / SettingsModal's Test
+  // button). Persisted via the same saveProviders() path as every other
+  // field here, so it survives a reload instead of resetting to "never
+  // tested" every time Settings is reopened.
+  lastTestResult?: ProviderTestResult;
   // Runtime fields (not persisted)
   health?: ProviderHealth;
   lastUsed?: number;
@@ -102,11 +108,26 @@ export interface AdapterCapabilities {
   supportsModelDiscovery: boolean;
 }
 
+export interface ProviderTestResult {
+  ok: boolean;
+  message: string;
+  /** Round-trip time for the actual test request, in ms — only present when a real network request was made (not a config-only check). */
+  latencyMs?: number;
+  /** The model the test request actually used, if applicable. */
+  checkedModel?: string;
+  /** When this test ran (Date.now()) — used for the "last tested Xm ago" display and to persist results across sessions. */
+  testedAt: number;
+  /** Failure category from HealthCooldown.classifyFailure — present only when ok:false. */
+  category?: string;
+  /** 0-100 — see ProviderManager.testProvider's scoring: mostly pass/fail, with a latency bonus when it passes. */
+  healthScore?: number;
+}
+
 export interface Adapter {
   label: string;
   browserSafe: boolean;
   supportsModelDiscovery: boolean;
-  testConnection?(provider: ProviderConfig): Promise<{ ok: boolean; message: string }>;
+  testConnection?(provider: ProviderConfig): Promise<ProviderTestResult>;
   fetchModels?(provider: ProviderConfig): Promise<string[]>;
   call?(provider: ProviderConfig, input: any, options?: any): Promise<any>;
 }

@@ -21,8 +21,8 @@ export class WikipediaAdapter extends BaseAdapter {
   browserSafe = true;
   supportsModelDiscovery = false;
 
-  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
-    return { ok: true, message: 'Wikipedia REST API — no key required.' };
+  async testConnection(_provider: ProviderConfig): Promise<{ ok: boolean; message: string; testedAt: number }> {
+    return { ok: true, message: 'Wikipedia REST API — no key required.', testedAt: Date.now() };
   }
 
   async call(provider: ProviderConfig, input: any, options?: any): Promise<string> {

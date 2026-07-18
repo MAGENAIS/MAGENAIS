@@ -1,12 +1,12 @@
 import { ProviderRegistry } from './Registry';
-import { ProviderConfig, ProviderType } from '../types';
+import { ProviderConfig, ProviderType, ProviderTestResult } from '../types';
 import { SmartRouter } from '../Router';
 import { Persistence } from '../../core/state/Persistence';
 import { EventBus } from '../../core/EventBus';
-import { Logger } from '../../core/Logger';
+import { Logger, ProviderCallEvent } from '../../core/Logger';
 import { ProviderValidator } from '../../config/ProviderValidator';
 import { ProviderAttempt, formatProviderReport, formatAllFailedMessage } from '../ProviderReport';
-import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel } from '../HealthCooldown';
+import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFailure } from '../HealthCooldown';
 
 // ---------------------------------------------------------------------------
 // PHASE 3a — Offline mode detection.
@@ -495,7 +495,7 @@ export class ProviderManager {
       log?.(`Trying ${runnable[0].provider.name}…`);
     }
 
-    return this.raceForFirstSuccess(runnable, type, input, options, attempts, log);
+    return this.raceForFirstSuccess(runnable, type, input, options, attempts, log, Logger.newRequestId());
   }
 
   /**
@@ -532,7 +532,8 @@ export class ProviderManager {
     input: any,
     options: Record<string, any>,
     attempts: ProviderAttempt[],
-    log?: (message: string, level?: 'info' | 'warn' | 'error') => void
+    log?: (message: string, level?: 'info' | 'warn' | 'error') => void,
+    requestId: string = Logger.newRequestId()
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       const total = runnable.length;
@@ -556,23 +557,40 @@ export class ProviderManager {
             ? options.model
             : provider.defaultModel;
 
+        // PHASE 6 — optional side-channel callbacks an adapter can report
+        // through without changing its return type (adapters return a
+        // plain string/URL/etc by design — see BaseAdapter's doc comment —
+        // so this, not a richer return shape, is how token usage/retry
+        // count reach the structured log below). Neither is required;
+        // an adapter that never calls them just logs as "n/a" for that field.
+        let capturedTokens: ProviderCallEvent['tokens'];
+        let capturedRetryCount: number | undefined;
+
         this.withTimeout(
           adapter.call!(provider, input, {
             ...options,
             model: options.mode ? (options.model ?? provider.defaultModel) : modelForThisProvider,
             mode: options.mode || provider.type,
             signal: controllers[index].signal,
+            onUsage: (usage: { prompt?: number; completion?: number; total?: number }) => { capturedTokens = usage; },
+            onRetry: (count: number) => { capturedRetryCount = count; },
           }),
           provider.timeoutMs,
           provider.name
         ).then((result) => {
           settled++;
+          const latencyMs = Date.now() - attemptStartedAt;
           this.registry.updateHealth(provider.id, {
             status: 'healthy',
             lastCheck: Date.now(),
-            responseTime: Date.now() - attemptStartedAt,
+            responseTime: latencyMs,
           });
           attempts.push({ name: provider.name, status: 'ok' });
+          const isWinner = !winnerFound;
+          Logger.event({
+            requestId, provider: provider.name, model: modelForThisProvider, latencyMs,
+            tokens: capturedTokens, retryCount: capturedRetryCount, winner: isWinner,
+          });
           if (!winnerFound) {
             winnerFound = true;
             log?.(`${provider.name} succeeded first — rendering result now.`, 'info');
@@ -585,14 +603,19 @@ export class ProviderManager {
           maybeLogBackgroundReport();
         }).catch((err: any) => {
           settled++;
+          const latencyMs = Date.now() - attemptStartedAt;
           const message = err?.message || String(err);
           this.registry.updateHealth(provider.id, {
             status: 'unhealthy',
             lastCheck: Date.now(),
-            responseTime: Date.now() - attemptStartedAt,
+            responseTime: latencyMs,
             lastError: message,
           });
           attempts.push({ name: provider.name, status: 'error', detail: message });
+          Logger.event({
+            requestId, provider: provider.name, model: modelForThisProvider, latencyMs,
+            retryCount: capturedRetryCount, failureReason: `${classifyFailure(message)}: ${message}`,
+          });
           if (!winnerFound) {
             log?.(`${provider.name} failed — ${message}`, 'error');
           }
@@ -724,7 +747,8 @@ export class ProviderManager {
       { prompt, imageBase64 },
       { mode: 'vision', log },
       attempts,
-      log
+      log,
+      Logger.newRequestId()
     );
   }
 
@@ -740,6 +764,49 @@ export class ProviderManager {
     // Auto-save? Could be debounced.
     this.saveProviders();
   }
+
+  /**
+   * PHASE 7 — Provider Testing. Runs the adapter's testConnection (a real
+   * minimal request for OpenAICompatibleAdapter — see that file — or the
+   * config-only check other adapter kinds use), scores it, feeds the
+   * outcome into the SAME health/cooldown tracking a real call's
+   * success/failure would (so a manual test that catches a bad key
+   * protects real requests too, not just a separate display-only result —
+   * see Registry.updateHealth / HealthCooldown.ts from Phase 3b), and
+   * persists the result onto the provider (ProviderConfig.lastTestResult)
+   * so it survives closing and reopening Keys & Providers.
+   */
+  async testProvider(id: string): Promise<ProviderTestResult> {
+    const provider = this.registry.getProvider(id);
+    const adapter = provider ? this.registry.getAdapter(provider.adapterId) : undefined;
+    if (!provider || !adapter?.testConnection) {
+      const result: ProviderTestResult = { ok: false, message: 'This provider has no test implementation.', testedAt: Date.now() };
+      return result;
+    }
+
+    const result = await adapter.testConnection(provider);
+    // Score: mostly pass/fail (70 for a bare pass), with a latency bonus —
+    // fast and correct scores higher than technically-correct-but-slow,
+    // which matters for a fallback chain where speed is part of the point.
+    if (result.ok) {
+      const latency = result.latencyMs ?? Infinity;
+      const latencyBonus = latency < 500 ? 30 : latency < 1500 ? 20 : latency < 3000 ? 10 : 0;
+      result.healthScore = 70 + latencyBonus;
+    } else {
+      result.healthScore = 0;
+    }
+
+    this.registry.updateHealth(id, {
+      status: result.ok ? 'healthy' : 'unhealthy',
+      lastCheck: result.testedAt,
+      responseTime: result.latencyMs,
+      lastError: result.ok ? undefined : result.message,
+    });
+    this.registry.updateProvider(id, { lastTestResult: result });
+    await this.saveProviders();
+    return result;
+  }
+
   setEnabled(id: string, enabled: boolean) {
     this.registry.setEnabled(id, enabled);
     this.saveProviders();

@@ -27,9 +27,9 @@ export class BrowserSpeechAdapter extends BaseAdapter {
   browserSafe = true;
   supportsModelDiscovery = false;
 
-  async testConnection(): Promise<{ ok: boolean; message: string }> {
+  async testConnection(): Promise<{ ok: boolean; message: string; testedAt: number }> {
     const ok = typeof window !== 'undefined' && !!window.speechSynthesis;
-    return { ok, message: ok ? 'Browser speech synthesis is available.' : 'speechSynthesis is not available in this browser.' };
+    return { ok, message: ok ? 'Browser speech synthesis is available.' : 'speechSynthesis is not available in this browser.', testedAt: Date.now() };
   }
 
   async call(_provider: ProviderConfig, _input: any): Promise<string> {
