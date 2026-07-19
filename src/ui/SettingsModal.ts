@@ -31,7 +31,7 @@ import {
   formatBytes as formatLocalModelBytes,
   getStorageInfo,
 } from '../providers/LocalModelDownloadManager';
-import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel } from '../providers/HealthCooldown';
+import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFailure, FailureCategory } from '../providers/HealthCooldown';
 import { Config } from '../core/Config';
 import { Logger } from '../core/Logger';
 
@@ -108,6 +108,69 @@ function timeAgo(ts: number): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/** Short (2-3 word) badge labels — distinct from HealthCooldown's CATEGORY_LABEL, which is phrased as a sentence fragment for use inside a longer message, not as a standalone UI badge. */
+const FAILURE_BADGE_LABEL: Record<FailureCategory, string> = {
+  auth: 'Invalid API Key',
+  not_found: 'Invalid Model',
+  rate_limited: 'Busy (Rate Limited)',
+  timeout: 'Timeout',
+  network: 'Network Error',
+  other: 'Error',
+};
+
+/**
+ * The friendly status vocabulary requested for Diagnostics — "Healthy /
+ * Busy / Invalid API Key / Configuration Missing / Local Model Missing /
+ * Download Required / Disabled / ..." — instead of a bare healthy/
+ * unhealthy dot with a raw error string. Reuses classifyFailure
+ * (HealthCooldown.ts) and LocalModelDownloadManager's install state rather
+ * than building a second, parallel classification system.
+ */
+function friendlyStatus(
+  p: ProviderConfig,
+  localTask: { task: LocalModelTask; role?: 'caption' | 'ocr' } | null
+): { label: string; color: string } {
+  if (!p.enabled) return { label: 'Disabled', color: 'var(--ink-faint)' };
+
+  if (!p.noKeyNeeded && !p.apiKey) {
+    return { label: 'Missing API Key', color: 'var(--amber, #d8a23f)' };
+  }
+  if (/\/([A-Z][A-Z0-9_]{3,})(?:\/|$)/.test(p.baseUrl || '')) {
+    // Same placeholder pattern ProviderValidator.validate flags (e.g.
+    // Cloudflare's unedited YOUR_ACCOUNT_ID) — surfaced here too so it
+    // shows as a specific, fixable status instead of a generic failure
+    // after the fact.
+    return { label: 'Configuration Missing', color: 'var(--amber, #d8a23f)' };
+  }
+  if (localTask) {
+    // Local-model install state takes priority over whatever's in
+    // p.health for this row — a Transformers.js provider that just hasn't
+    // been downloaded yet isn't "unhealthy", it's not started, and
+    // Manager.ts deliberately never marks it unhealthy for exactly this
+    // reason (see ModelNotInstalledError handling in raceForFirstSuccess).
+    const modelId = p.defaultModel || getRegistryDefaultId(localTask.task, localTask.role);
+    const entry = modelId ? getLocalModelManifestEntry(modelId, localTask.task, localTask.role) : undefined;
+    const s = entry?.status || 'not-installed';
+    if (s === 'not-installed' || s === 'error') return { label: 'Download Required', color: 'var(--amber, #d8a23f)' };
+    if (s === 'downloading' || s === 'queued') return { label: 'Downloading…', color: 'var(--azure)' };
+    if (s === 'paused') return { label: 'Download Paused', color: 'var(--amber, #d8a23f)' };
+    if (s === 'corrupted') return { label: 'Download Corrupted', color: 'var(--rust)' };
+    // 'ready' falls through to normal health reporting below — being
+    // installed doesn't guarantee it's been successfully used yet.
+  }
+
+  const health = p.health;
+  if (!health || health.status === 'unknown') return { label: 'Not tested yet', color: 'var(--ink-faint)' };
+  if (health.status === 'healthy') return { label: 'Healthy', color: 'var(--sage, #4a9d6a)' };
+  // 'degraded' or 'unhealthy' — classify the actual last error into the
+  // specific badge vocabulary rather than a generic "Provider Failed".
+  const category = classifyFailure(health.lastError);
+  const color = category === 'rate_limited' || category === 'timeout' || category === 'network'
+    ? 'var(--amber, #d8a23f)' // transient — expected to recover on its own, not a red "something is broken" color
+    : 'var(--rust)'; // auth/not_found/other — needs a person to actually fix something
+  return { label: FAILURE_BADGE_LABEL[category], color };
 }
 
 function blankProvider(type: ProviderType = 'text'): ProviderConfig {
@@ -358,7 +421,9 @@ export class SettingsModal {
 
     if (providers.length === 0) {
       const categoryHelp: Record<string, string> = {
-        mcp: "MCP (Model Context Protocol) server integration doesn't have a working adapter in this build yet — there's no backend for this category to actually call, so adding a custom provider here won't do anything until that adapter exists.",
+        mcp: `MCP (Model Context Protocol) doesn't have a working protocol client wired up in this build yet — adding a provider here won't actually call anything until that exists.
+          <br><br>Worth knowing for when it does: most of the well-known MCP servers (Filesystem, SQLite, Playwright, Sequential Thinking, and GitHub's official one) are <b>stdio-based</b> — they run as a local process your machine spawns and talk over stdin/stdout, which a browser tab fundamentally cannot start (no process/filesystem access in the browser sandbox, by design). Those would need a small local bridge process running alongside this app to work from here at all.
+          <br><br>The category of MCP server that <i>could</i> work directly from a browser is one exposed over HTTP/SSE ("Streamable HTTP" in the MCP spec) — a handful of hosted MCP servers (e.g. some remote GitHub/Fetch-style ones) work this way. If you have a specific HTTP-reachable MCP endpoint in mind, tell me its URL and auth scheme and I can build a real MCP-over-HTTP adapter for it rather than a placeholder that looks configurable but does nothing.`,
         gamegen: 'There\'s no standardized, ready-to-use game-generation API this app ships pre-configured — "+ Add custom provider" below only helps if you already have a specific game-generation endpoint (self-hosted or third-party) to point it at.',
       };
       list.innerHTML = `<p class="hint">${categoryHelp[this.activeFilter] || 'No providers in this category yet.'}</p>`;
@@ -541,33 +606,23 @@ export class SettingsModal {
     const manager = this.kernel.getProviderManager();
     const providers = manager.getProviders().sort((a: ProviderConfig, b: ProviderConfig) => a.priority - b.priority);
     table.innerHTML = providers.map((p: ProviderConfig) => {
-      const health = p.health;
-      const statusColor: Record<string, string> = {
-        healthy: 'var(--sage, #4a9d6a)', degraded: 'var(--amber, #d8a23f)',
-        unhealthy: 'var(--rust)', unknown: 'var(--ink-faint)',
-      };
-      const status = health?.status || 'unknown';
       const successPct = p.successRate !== undefined ? `${Math.round(p.successRate * 100)}%` : '—';
       const latency = p.averageLatency !== undefined ? `${Math.round(p.averageLatency)}ms` : '—';
       const timeouts = p.timeoutCount || 0;
+      const health = p.health;
       const cooldown = health?.cooldownUntil && health.cooldownUntil > Date.now() ? ` · cooling down (${cooldownRemainingLabel(health)})` : '';
       const lastError = health?.lastError ? escapeHtml(health.lastError.slice(0, 80)) + (health.lastError.length > 80 ? '…' : '') : '';
 
       const localTask = localTaskForProvider(p);
-      let installedLine = '';
-      if (localTask) {
-        const modelId = p.defaultModel || getRegistryDefaultId(localTask.task, localTask.role);
-        const entry = modelId ? getLocalModelManifestEntry(modelId, localTask.task, localTask.role) : undefined;
-        const s = entry?.status || 'not-installed';
-        installedLine = ` · <span style="color:${s === 'ready' ? 'var(--sage, #4a9d6a)' : 'var(--ink-faint)'};">${s === 'ready' ? 'installed' : s === 'not-installed' ? 'not downloaded' : s}</span>`;
-      }
+      const status = friendlyStatus(p, localTask);
 
       return `
         <div style="display:flex; flex-direction:column; gap:1px; padding:6px 8px; border-radius:6px; background:var(--panel-2, rgba(127,127,127,0.06));">
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <span style="width:7px; height:7px; border-radius:50%; background:${statusColor[status]}; flex-shrink:0;"></span>
+            <span style="width:7px; height:7px; border-radius:50%; background:${status.color}; flex-shrink:0;"></span>
             <b style="font-size:12px;">${escapeHtml(p.name)}</b>
-            <span class="hint" style="margin:0;">${escapeHtml(p.type)}${installedLine}${cooldown}</span>
+            <span class="hint" style="margin:0; color:${status.color};">${status.label}</span>
+            <span class="hint" style="margin:0;">${escapeHtml(p.type)}${cooldown}</span>
           </div>
           <div class="hint" style="margin:0; font-family:var(--mono); font-size:10px;">
             success ${successPct} · avg latency ${latency} · timeouts ${timeouts}${lastError ? ` · last error: ${lastError}` : ''}
@@ -603,7 +658,6 @@ export class SettingsModal {
       : '<span style="color:var(--amber, #d8a23f);">NOT protected</span> — the browser may silently clear cached models under low disk space, which is the most common cause of a download appearing to "restart from scratch"';
     el.innerHTML = `Storage used by this site: ${formatLocalModelBytes(info.usageBytes)} of ${formatLocalModelBytes(info.quotaBytes)} available (${pct}%) · ${persistedNote}.`;
   }
-
 
   /**
    * Local Models Manager (item 3/4/5 of the local-AI-studio brief) — every
