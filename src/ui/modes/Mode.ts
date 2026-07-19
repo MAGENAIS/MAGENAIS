@@ -13,6 +13,21 @@ export abstract class Mode {
   protected controlPanel: HTMLElement;
   protected outputPanel: HTMLElement;
   protected kernel: Kernel;
+  /**
+   * ROOT CAUSE FIX: appendLog's progress-collapsing used to only check
+   * whether the log's very last line matched the incoming progressKey.
+   * That works for a single file downloading on its own, but
+   * TransformersAdapter downloads a model's several files concurrently
+   * (e.g. MusicGen: text_encoder.onnx, decoder_model_merged.onnx,
+   * encodec_decode.onnx all progressing in an interleaved order) — each
+   * tick's "last line" kept switching between three different files'
+   * progress keys, so the match almost never held and a new line got
+   * appended almost every tick instead of the right one updating in
+   * place. This map finds ANY existing line for a given file, not just
+   * whichever one happens to be last, so concurrent downloads collapse
+   * to one line per file exactly like a single sequential download does.
+   */
+  private progressLineByKey: Map<string, HTMLElement> = new Map();
 
   // Re-entrancy guard shared by every mode's Generate/Run button. Without
   // this, a slow in-flight request could be joined by a second click,
@@ -189,15 +204,19 @@ export abstract class Mode {
       }
       const t = lastLine.querySelector('.t');
       if (t) t.textContent = time;
-    } else if (progressKey && lastLine && lastLine.dataset.progressKey === progressKey && lastLine.dataset.level === level) {
-      // A new tick for the SAME in-progress download — update the
+    } else if (progressKey && this.progressLineByKey.has(progressKey) && this.progressLineByKey.get(progressKey)!.dataset.level === level) {
+      // A new tick for this file's in-progress download, found regardless
+      // of whether it's still the last line in the log (see the
+      // progressLineByKey doc comment above for why that distinction
+      // matters for concurrent multi-file downloads) — update the
       // existing line's text/timestamp in place. This is what keeps a
       // multi-hundred-MB model download to one live-updating line instead
       // of a new line every few percent.
-      lastLine.dataset.rawMessage = message;
-      const msgEl = lastLine.querySelector('.msg');
+      const lineEl = this.progressLineByKey.get(progressKey)!;
+      lineEl.dataset.rawMessage = message;
+      const msgEl = lineEl.querySelector('.msg');
       if (msgEl) msgEl.textContent = message;
-      const t = lastLine.querySelector('.t');
+      const t = lineEl.querySelector('.t');
       if (t) t.textContent = time;
     } else {
       const line = document.createElement('div');
@@ -205,7 +224,10 @@ export abstract class Mode {
       line.dataset.rawMessage = message;
       line.dataset.level = level;
       line.dataset.count = '1';
-      if (progressKey) line.dataset.progressKey = progressKey;
+      if (progressKey) {
+        line.dataset.progressKey = progressKey;
+        this.progressLineByKey.set(progressKey, line);
+      }
       const t = document.createElement('span');
       t.className = 't';
       t.textContent = time;
@@ -215,6 +237,13 @@ export abstract class Mode {
       line.appendChild(t);
       line.appendChild(msg);
       log.appendChild(line);
+    }
+    // A file that just reported 100%/done frees its map slot — a much
+    // later, unrelated download that happens to touch a same-named file
+    // (e.g. a different model sharing a component filename) should start
+    // its own fresh line, not silently collapse into this finished one.
+    if (progressKey && /—\s*(done|100%)/i.test(message)) {
+      this.progressLineByKey.delete(progressKey);
     }
 
     const total = log.children.length;

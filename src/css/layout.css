@@ -554,7 +554,17 @@ details.adv .adv-body{ padding: 4px 12px 14px; display:flex; flex-direction:colu
 
 /* Data table */
 table.data-preview {
-  width:100%;
+  /* ROOT CAUSE FIX: width:100% forced the table to squeeze every column
+     into the container's width no matter how many columns there were,
+     instead of growing wider and letting .table-scroll's overflow:auto
+     below actually scroll — with 12 columns that meant every cell got
+     crushed toward its max-width, clipping most of the data. min-width
+     keeps a narrow (few-column) table filling the available width like
+     before; width:max-content lets a wide table grow past the container
+     so the scrollbar this rule already had a wrapper for finally does
+     something. */
+  min-width:100%;
+  width:max-content;
   border-collapse:collapse;
   font-family:var(--mono);
   font-size:11.5px;
