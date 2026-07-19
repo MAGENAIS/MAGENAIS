@@ -102,7 +102,26 @@ export abstract class Mode {
           this.kernel.getEventBus().emit('ui:openLocalModels', missing!.modelId);
         });
       } else {
-        stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text stage-error">Generation failed — see details below.</div>`;
+        // formatAllFailedMessage (ProviderReport.ts) already builds a good
+        // "most attempts failed because of X, so try Y" closing line — it
+        // was just buried in the log panel below instead of shown here.
+        // Detected by its stable, unique opening phrase rather than a
+        // fragile full-string match, since the report body in the middle
+        // varies by however many providers were tried.
+        const allFailedMatch = message.match(/^No provider could complete this '([^']+)' request\.[\s\S]*?(Generation stops here because[\s\S]*)$/);
+        if (allFailedMatch) {
+          const [, requestType, closingLine] = allFailedMatch;
+          stage.innerHTML = `
+            <div class="empty-glyph" style="color:var(--rust);">!</div>
+            <div class="empty-text stage-error">${escapeHtmlLite(closingLine)}</div>
+            <button class="ghost-btn small" id="openProvidersBtn" style="margin-top:8px;">Open Keys & Providers</button>
+          `;
+          stage.querySelector('#openProvidersBtn')?.addEventListener('click', () => {
+            this.kernel.getEventBus().emit('ui:openProviderType', requestType);
+          });
+        } else {
+          stage.innerHTML = `<div class="empty-glyph" style="color:var(--rust);">!</div><div class="empty-text stage-error">Generation failed — see details below.</div>`;
+        }
       }
     }
     this.appendLog(message, 'error');

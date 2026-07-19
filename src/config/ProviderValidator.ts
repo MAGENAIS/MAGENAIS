@@ -69,6 +69,22 @@ export class ProviderValidator {
             `${provider.name || provider.id}: Base URL "${provider.baseUrl}" already ends in "${suffixHit}", but this adapter appends its own path suffix on top of it, which will double the path. Set the Base URL to just the API root (e.g. "https://api.example.com/v1"), not the full endpoint.`
           );
         }
+        // A few presets (Cloudflare Workers AI) ship with a placeholder
+        // segment in their default Base URL that the person is instructed
+        // (in the provider's Notes field) to replace with their own account
+        // ID — easy to miss since Notes are easy to skip past. Left as-is,
+        // the request still goes out and comes back as an opaque
+        // provider-side 404/400 with no indication that the URL itself was
+        // never actually finished being configured. ALL_CAPS_WITH_UNDERSCORES
+        // segments are treated as placeholders — real path segments in
+        // these adapters' URLs (account IDs, resource names) are never
+        // shaped like that.
+        const placeholderMatch = provider.baseUrl.match(/\/([A-Z][A-Z0-9_]{3,})(?:\/|$)/);
+        if (placeholderMatch) {
+          errors.push(
+            `${provider.name || provider.id}: Base URL "${provider.baseUrl}" still contains a placeholder ("${placeholderMatch[1]}") that needs to be replaced with your actual value — check this provider's Notes field for what goes there.`
+          );
+        }
       }
     }
     if (provider.timeoutMs === undefined || provider.timeoutMs === null || provider.timeoutMs <= 0) {

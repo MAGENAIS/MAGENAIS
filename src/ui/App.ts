@@ -263,6 +263,7 @@ export class App {
     // itself is tracked in ProviderManager, this just routes the resulting
     // click to the right UI.
     this.eventBus.on('ui:openLocalModels', (modelId: string) => this.settingsModal.focusLocalModel(modelId));
+    this.eventBus.on('ui:openProviderType', (type: string) => this.settingsModal.focusProviderType(type));
     // Enterprise / AIOS events (optional)
     this.eventBus.on('project:selected', (id) => this.updateStatus(`Project: ${id}`, ''));
     this.eventBus.on('memory:set', ({ key }) => this.logStatus(`Memory updated: ${key}`));

@@ -234,6 +234,18 @@ async function runQueue(log?: (msg: string, level?: 'info' | 'warn' | 'error') =
 
       try {
         if (!warmModelFn) throw new Error('Local model download implementation is not registered yet — try again in a moment.');
+        // ROOT CAUSE of "page becomes unresponsive during a download":
+        // notify() below does a synchronous JSON.stringify+localStorage
+        // write AND (while the Local Models Manager is open) a full DOM
+        // rebuild of every model row — cheap once, but this callback can
+        // fire many times per second on a fast connection, and doing all
+        // of that on every single tick is exactly what freezes the main
+        // thread. lastNotifyAt throttles the expensive part to ~4/sec;
+        // the actual byte counters below are still updated on every tick
+        // (that part's cheap — an object write and two array reduces), so
+        // the progress numbers stay accurate even between throttled UI
+        // updates, and 'done' always gets an unconditional final notify.
+        let lastNotifyAt = 0;
         await warmModelFn(item.modelId, item.task, item.role, (file, loaded, total, done) => {
           if (cancelFlags.get(k)) {
             // Thrown from inside the progress_callback — see the module
@@ -245,7 +257,11 @@ async function runQueue(log?: (msg: string, level?: 'info' | 'warn' | 'error') =
           e.files[file] = { loaded, total, done };
           e.bytesDownloaded = Object.values(e.files).reduce((sum, f) => sum + f.loaded, 0);
           e.bytesTotal = Object.values(e.files).reduce((sum, f) => sum + f.total, 0);
-          notify();
+          const now = Date.now();
+          if (done || now - lastNotifyAt > 250) {
+            lastNotifyAt = now;
+            notify();
+          }
         }, log);
 
         const e = ensureEntry(item.modelId, item.task, item.role);
@@ -307,6 +323,7 @@ export function download(
   }
   entry.status = 'queued';
   notify();
+  void ensurePersistentStorage();
   return new Promise((resolve, reject) => {
     queue.push({ modelId, task, role, resolve, reject });
     runQueue(log);
@@ -397,4 +414,73 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+}
+
+// ---------------------------------------------------------------------------
+// Storage persistence + quota — the real, verifiable fix for "a download
+// terminates partway through and restarts from the very beginning instead
+// of resuming."
+//
+// ROOT CAUSE: the actual bytes downloaded here are cached by transformers.js
+// itself via the browser's Cache Storage API (see TransformersAdapter.ts's
+// doc comment). Cache Storage is, by default, "best-effort" storage — every
+// major browser is allowed to silently evict some or all of an origin's
+// Cache Storage/IndexedDB entries under disk-space pressure, with no error
+// or event delivered to the page. A collection of local AI models can
+// easily total several GB, which is exactly the kind of usage that
+// triggers this on a device that's low on free space — so a "resume" can
+// genuinely find that previously-completed files are just gone, through no
+// bug in the queue/worker logic above; they were silently reclaimed by the
+// browser between attempts.
+//
+// FIX: navigator.storage.persist() is the standard, documented Storage API
+// for asking the browser to exempt this origin's storage from that
+// best-effort eviction (subject to the browser's own persistent-storage
+// quota and, on most browsers, the origin having "engagement" — e.g.
+// having been bookmarked/installed/visited enough — the browser can still
+// say no, hence checking the actual granted state below rather than
+// assuming success). This is requested once, the first time any download
+// starts, rather than unconditionally on module load, since some browsers
+// weight "did the user take an action that implies they want this" when
+// deciding whether to grant it.
+// ---------------------------------------------------------------------------
+
+let persistenceRequested = false;
+
+async function ensurePersistentStorage(): Promise<void> {
+  if (persistenceRequested) return;
+  persistenceRequested = true;
+  try {
+    if (navigator.storage?.persist) {
+      await navigator.storage.persist();
+    }
+  } catch {
+    // Not fatal — some browsers (notably ones without the Storage API at
+    // all, e.g. older Safari) simply don't support this; downloads still
+    // work, they're just not protected from eviction.
+  }
+}
+
+export interface StorageInfo {
+  supported: boolean;
+  persisted: boolean;
+  usageBytes: number;
+  quotaBytes: number;
+}
+
+/** Real, honest answer to "where is this stored and how much room is there" — there's no filesystem path in a browser, so this (persistence status + quota usage) is the accurate equivalent, shown in the Local Models Manager. */
+export async function getStorageInfo(): Promise<StorageInfo> {
+  if (!navigator.storage?.estimate) {
+    return { supported: false, persisted: false, usageBytes: 0, quotaBytes: 0 };
+  }
+  const [estimate, persisted] = await Promise.all([
+    navigator.storage.estimate().catch(() => ({ usage: 0, quota: 0 })),
+    navigator.storage.persisted?.().catch(() => false) ?? Promise.resolve(false),
+  ]);
+  return {
+    supported: true,
+    persisted: !!persisted,
+    usageBytes: estimate.usage || 0,
+    quotaBytes: estimate.quota || 0,
+  };
 }

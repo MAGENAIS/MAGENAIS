@@ -29,6 +29,7 @@ import {
   getEntry as getLocalModelManifestEntry,
   onManifestChange,
   formatBytes as formatLocalModelBytes,
+  getStorageInfo,
 } from '../providers/LocalModelDownloadManager';
 import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel } from '../providers/HealthCooldown';
 import { Config } from '../core/Config';
@@ -143,6 +144,7 @@ export class SettingsModal {
     this.ensureDom();
     this.renderList();
     this.renderLocalModelsList();
+    void this.renderStorageInfo();
     void this.renderDiagnostics();
     document.getElementById('settingsModal')?.classList.add('open');
     // Live-update download progress/status while the modal is open —
@@ -150,7 +152,7 @@ export class SettingsModal {
     // modal's listener (and its re-renders) alive after the person
     // navigates away.
     if (!this.unsubscribeManifest) {
-      this.unsubscribeManifest = onManifestChange(() => { this.renderLocalModelsList(); void this.renderDiagnostics(); });
+      this.unsubscribeManifest = onManifestChange(() => { this.renderLocalModelsList(); void this.renderDiagnostics(); void this.renderStorageInfo(); });
     }
     if (!this.healthUpdateHandler) {
       // Debounced — a multi-provider race can fire several
@@ -181,6 +183,14 @@ export class SettingsModal {
       }
     });
   }
+
+  /** Opens straight to a given provider-type filter (e.g. after a generation failure — see Mode.ts's renderError) so the person lands on exactly the tab that failed instead of the default 'All' view. */
+  focusProviderType(type: string): void {
+    this.open();
+    const chip = document.querySelector(`#providerTypeFilterChips .chip[data-val="${CSS.escape(type)}"]`) as HTMLElement | null;
+    chip?.click();
+  }
+
 
   private close(): void {
     document.getElementById('settingsModal')?.classList.remove('open');
@@ -239,6 +249,11 @@ export class SettingsModal {
               <p class="hint">These run entirely on-device — no key, no signup. The main text/vision/audio/embeddings
                 models are edited from their provider row above ("Edit" → "Default model"); the three below are
                 sub-tasks that share a provider with something else, so they're configured here instead.</p>
+              <p class="hint" style="color:var(--amber, #d8a23f);">On a larger model, your browser may briefly show its own
+                "Page Unresponsive" warning while the model finishes initializing after downloading — this is expected on
+                slower hardware, not a crash. <b>Don't force-close the tab</b> if you see it; that's the one thing that
+                actually loses progress. Just wait, or dismiss the browser's dialog if it offers a "Wait" option.</p>
+              <div id="localModelsStorageInfo" class="hint" style="margin:0;"></div>
               <div id="localModelsList" style="display:flex; flex-direction:column; gap:10px;"></div>
             </div>
           </details>
@@ -342,7 +357,11 @@ export class SettingsModal {
     providers = providers.sort((a: ProviderConfig, b: ProviderConfig) => a.priority - b.priority);
 
     if (providers.length === 0) {
-      list.innerHTML = '<p class="hint">No providers in this category yet.</p>';
+      const categoryHelp: Record<string, string> = {
+        mcp: "MCP (Model Context Protocol) server integration doesn't have a working adapter in this build yet — there's no backend for this category to actually call, so adding a custom provider here won't do anything until that adapter exists.",
+        gamegen: 'There\'s no standardized, ready-to-use game-generation API this app ships pre-configured — "+ Add custom provider" below only helps if you already have a specific game-generation endpoint (self-hosted or third-party) to point it at.',
+      };
+      list.innerHTML = `<p class="hint">${categoryHelp[this.activeFilter] || 'No providers in this category yet.'}</p>`;
       return;
     }
 
@@ -556,6 +575,33 @@ export class SettingsModal {
         </div>
       `;
     }).join('');
+  }
+
+
+  /**
+   * There is no real filesystem path in a browser — models are cached via
+   * the Cache Storage API, not written to a location the person could
+   * "browse" to (see the item 4 caveat from earlier in this project). This
+   * is the honest equivalent: how much is stored, how much room is left,
+   * and — the actually load-bearing part — whether this origin is exempt
+   * from the browser's silent best-effort eviction (see
+   * LocalModelDownloadManager.ts's storage-persistence doc comment for why
+   * that eviction is the real, verifiable explanation for "a download
+   * restarts from scratch instead of resuming").
+   */
+  private async renderStorageInfo(): Promise<void> {
+    const el = document.getElementById('localModelsStorageInfo');
+    if (!el) return;
+    const info = await getStorageInfo();
+    if (!info.supported) {
+      el.textContent = "This browser doesn't report storage usage — models are still cached normally, just without a usage/quota readout here.";
+      return;
+    }
+    const pct = info.quotaBytes > 0 ? Math.round((info.usageBytes / info.quotaBytes) * 100) : 0;
+    const persistedNote = info.persisted
+      ? '<span style="color:var(--sage, #4a9d6a);">protected from automatic eviction</span>'
+      : '<span style="color:var(--amber, #d8a23f);">NOT protected</span> — the browser may silently clear cached models under low disk space, which is the most common cause of a download appearing to "restart from scratch"';
+    el.innerHTML = `Storage used by this site: ${formatLocalModelBytes(info.usageBytes)} of ${formatLocalModelBytes(info.quotaBytes)} available (${pct}%) · ${persistedNote}.`;
   }
 
 

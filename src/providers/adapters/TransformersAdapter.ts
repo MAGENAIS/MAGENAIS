@@ -172,6 +172,28 @@ function loadTransformersModule(log?: (msg: string, level?: 'info' | 'warn' | 'e
             import(/* @vite-ignore */ url),
             new Promise((_, reject) => setTimeout(() => reject(new Error('CDN request timed out')), 8000)),
           ]);
+          // Item 11 follow-up ("page becomes unresponsive during a local
+          // model load"): heavy WASM/ONNX work (tokenizer/session init,
+          // and CPU-only inference itself) can otherwise run synchronously
+          // on the main thread. onnxruntime-web (which transformers.js
+          // uses under the hood) has a real, documented setting for this —
+          // env.backends.onnx.wasm.proxy — that offloads WASM execution to
+          // a Worker it manages internally, without this app needing to
+          // build its own postMessage protocol (the larger, riskier change
+          // documented as deliberately deferred elsewhere in this file).
+          // This is strictly best-effort: the exact property path can't be
+          // confirmed without a live browser, so it's set defensively —
+          // only if it's already there as a boolean, never forced onto an
+          // unexpected shape — meaning a wrong assumption here is a silent
+          // no-op, not a thrown error.
+          try {
+            const wasmEnv = mod?.env?.backends?.onnx?.wasm;
+            if (wasmEnv && typeof wasmEnv.proxy === 'boolean') {
+              wasmEnv.proxy = true;
+            }
+          } catch {
+            // Deliberately swallowed — see the comment above.
+          }
           return mod;
         } catch (err: any) {
           lastError = err;
