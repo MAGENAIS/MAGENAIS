@@ -238,11 +238,18 @@ export abstract class Mode {
       line.appendChild(msg);
       log.appendChild(line);
     }
-    // A file that just reported 100%/done frees its map slot — a much
-    // later, unrelated download that happens to touch a same-named file
-    // (e.g. a different model sharing a component filename) should start
-    // its own fresh line, not silently collapse into this finished one.
-    if (progressKey && /—\s*(done|100%)/i.test(message)) {
+    // A file that just reported its final "done" message frees its map
+    // slot — a much later, unrelated download that happens to touch a
+    // same-named file (e.g. a different model sharing a component
+    // filename) should start its own fresh line, not silently collapse
+    // into this finished one.
+    // ROOT CAUSE FIX: this used to also match a bare "100%" progress tick,
+    // but a tick reaching 100% and the actual terminal "done" message (see
+    // TransformersAdapter's progress_callback) are two separate log calls
+    // moments apart — cleaning up on the 100% tick deleted the map entry
+    // before "done" arrived, so "done" couldn't find it and created a
+    // duplicate line instead of updating the existing one in place.
+    if (progressKey && /—\s*done\b/i.test(message)) {
       this.progressLineByKey.delete(progressKey);
     }
 

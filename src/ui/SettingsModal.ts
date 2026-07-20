@@ -31,7 +31,7 @@ import {
   formatBytes as formatLocalModelBytes,
   getStorageInfo,
 } from '../providers/LocalModelDownloadManager';
-import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFailure, FailureCategory } from '../providers/HealthCooldown';
+import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFailure, isTransientCategory, FailureCategory } from '../providers/HealthCooldown';
 import { Config } from '../core/Config';
 import { Logger } from '../core/Logger';
 
@@ -420,10 +420,24 @@ export class SettingsModal {
     providers = providers.sort((a: ProviderConfig, b: ProviderConfig) => a.priority - b.priority);
 
     if (providers.length === 0) {
+      const mcpServerCatalog: Array<{ name: string; blurb: string; kind: 'local' | 'remote' }> = [
+        { name: 'Filesystem', blurb: 'Lets an AI read and edit files on your own computer.', kind: 'local' },
+        { name: 'GitHub', blurb: 'Lets an AI look at and manage repositories, issues, and pull requests.', kind: 'local' },
+        { name: 'Fetch', blurb: 'Lets an AI fetch and read web pages on request.', kind: 'local' },
+        { name: 'Browser', blurb: 'Lets an AI click around and read a real browser window.', kind: 'local' },
+        { name: 'Memory', blurb: 'Gives an AI a persistent notebook it can save things to between chats.', kind: 'local' },
+        { name: 'SQLite', blurb: 'Lets an AI query a local database file.', kind: 'local' },
+        { name: 'Sequential Thinking', blurb: 'Helps an AI break a hard problem into smaller reasoning steps.', kind: 'local' },
+        { name: 'Playwright', blurb: 'Lets an AI drive a real browser to test or automate websites.', kind: 'local' },
+      ];
       const categoryHelp: Record<string, string> = {
-        mcp: `MCP (Model Context Protocol) doesn't have a working protocol client wired up in this build yet — adding a provider here won't actually call anything until that exists.
-          <br><br>Worth knowing for when it does: most of the well-known MCP servers (Filesystem, SQLite, Playwright, Sequential Thinking, and GitHub's official one) are <b>stdio-based</b> — they run as a local process your machine spawns and talk over stdin/stdout, which a browser tab fundamentally cannot start (no process/filesystem access in the browser sandbox, by design). Those would need a small local bridge process running alongside this app to work from here at all.
-          <br><br>The category of MCP server that <i>could</i> work directly from a browser is one exposed over HTTP/SSE ("Streamable HTTP" in the MCP spec) — a handful of hosted MCP servers (e.g. some remote GitHub/Fetch-style ones) work this way. If you have a specific HTTP-reachable MCP endpoint in mind, tell me its URL and auth scheme and I can build a real MCP-over-HTTP adapter for it rather than a placeholder that looks configurable but does nothing.`,
+        mcp: `MCP (Model Context Protocol) is a standard way to give an AI extra abilities — reading your files, browsing the web, remembering things between chats, and more — through small helper programs called "servers."
+          <br><br><b>Common MCP servers:</b>
+          <div style="margin:8px 0; display:flex; flex-direction:column; gap:3px;">
+            ${mcpServerCatalog.map(s => `<div><b>${escapeHtml(s.name)}</b> — ${escapeHtml(s.blurb)}</div>`).join('')}
+          </div>
+          Most of these run as a small program on your own computer, which a browser tab can't start by itself for security reasons — they'd need a small companion app running alongside MAGENAIS to connect. That companion piece isn't built yet, so adding one of these here won't do anything useful <i>yet</i> — this list is here so you know what's coming and can ask for the ones you actually want built first.
+          <br><br>If you already have a remote MCP server reachable over a web address (not one you run locally), tell me its URL and I can look at making that one actually work sooner, since those don't need a local companion app.`,
         gamegen: 'There\'s no standardized, ready-to-use game-generation API this app ships pre-configured — "+ Add custom provider" below only helps if you already have a specific game-generation endpoint (self-hosted or third-party) to point it at.',
       };
       list.innerHTML = `<p class="hint">${categoryHelp[this.activeFilter] || 'No providers in this category yet.'}</p>`;
@@ -455,8 +469,11 @@ export class SettingsModal {
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
       const visionBadge = isVisionOnly(p) ? ' · <span style="color:var(--violet, #8a6fd8);">vision-only</span>' : '';
       const localBadge = LOCAL_ADAPTER_IDS.has(p.adapterId) ? ' · <span style="color:var(--sage, #4a9d6a);">local</span>' : '';
+      const cooldownCategory = p.health?.failureCategory as FailureCategory | undefined;
       const cooldownBadge = isInCooldown(p.health)
-        ? ` · <span style="color:var(--rust);" title="Repeated failures — this provider is being skipped until it cools down, so it doesn't keep failing the same way on every request.">cooling down (${cooldownRemainingLabel(p.health)} left) — ${escapeHtml(cooldownReasonLabel(p.health!.failureCategory as any))}</span>`
+        ? cooldownCategory && isTransientCategory(cooldownCategory)
+          ? ` · <span style="color:var(--amber, #d8a23f);" title="A temporary failure — this provider is being skipped until it cools down on its own, so it doesn't keep failing the same way on every request.">cooling down (${cooldownRemainingLabel(p.health)} left) — ${escapeHtml(cooldownReasonLabel(cooldownCategory))}</span>`
+          : ` · <span style="color:var(--rust);" title="This needs a person to fix it — it will keep being skipped on every request until you update its configuration below and it succeeds again, not automatically.">needs reconfiguring — ${escapeHtml(cooldownReasonLabel(cooldownCategory || 'other'))}</span>`
         : '';
       // PHASE 7 — Provider Testing: shows the persisted result of the last
       // "Test" click (ProviderConfig.lastTestResult, saved via
@@ -610,7 +627,12 @@ export class SettingsModal {
       const latency = p.averageLatency !== undefined ? `${Math.round(p.averageLatency)}ms` : '—';
       const timeouts = p.timeoutCount || 0;
       const health = p.health;
-      const cooldown = health?.cooldownUntil && health.cooldownUntil > Date.now() ? ` · cooling down (${cooldownRemainingLabel(health)})` : '';
+      const cooldownCategory = health?.lastError ? classifyFailure(health.lastError) : null;
+      const cooldown = health?.cooldownUntil && health.cooldownUntil > Date.now() && cooldownCategory && isTransientCategory(cooldownCategory)
+        ? ` · cooling down (${cooldownRemainingLabel(health)})`
+        : health?.cooldownUntil && health.cooldownUntil > Date.now()
+          ? ' · will be skipped until reconfigured'
+          : '';
       const lastError = health?.lastError ? escapeHtml(health.lastError.slice(0, 80)) + (health.lastError.length > 80 ? '…' : '') : '';
 
       const localTask = localTaskForProvider(p);

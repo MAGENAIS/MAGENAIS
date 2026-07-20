@@ -28,6 +28,8 @@ export interface ProviderConfig {
   baseUrl: string;
   authType: AuthType;
   authHeaderName?: string;      // for 'header'
+  /** Prefix prepended to the header value for authType:'header', e.g. 'Key ' (fal.ai) or 'Token ' — NOT the same as authType:'bearer', which always hardcodes 'Bearer '. Defaults to '' (bare token) when unset, so this is purely additive and doesn't change any existing provider's behavior. */
+  authHeaderPrefix?: string;
   authQueryParam?: string;      // for 'query'
   headers?: Record<string, string> | string; // JSON string or object
   defaultModel?: string;

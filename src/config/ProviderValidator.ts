@@ -87,6 +87,26 @@ export class ProviderValidator {
         }
       }
     }
+    // Same placeholder pattern, applied to provider.headers — e.g. PlayHT's
+    // required X-User-ID header defaults to "YOUR_USER_ID" until edited.
+    // Extra headers are legitimately free-form (any custom API could put
+    // anything there), so this only flags the exact same ALL_CAPS
+    // convention as above, not header values in general.
+    if (provider.headers) {
+      try {
+        const parsed = typeof provider.headers === 'string' ? JSON.parse(provider.headers) : provider.headers;
+        for (const [headerName, headerValue] of Object.entries(parsed || {})) {
+          if (typeof headerValue === 'string' && /^[A-Z][A-Z0-9_]{3,}$/.test(headerValue)) {
+            errors.push(
+              `${provider.name || provider.id}: Header "${headerName}" still has its placeholder value ("${headerValue}") — check this provider's Notes field for what goes there.`
+            );
+          }
+        }
+      } catch {
+        // Malformed headers JSON — not this check's job to report; whatever
+        // tries to actually use it will surface a clearer error.
+      }
+    }
     if (provider.timeoutMs === undefined || provider.timeoutMs === null || provider.timeoutMs <= 0) {
       errors.push(`${provider.name || provider.id}: Timeout must be a positive number of milliseconds.`);
     }

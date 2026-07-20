@@ -39,6 +39,24 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
       return { ok: false, message: 'API key is required.', testedAt, category: 'auth' };
     }
 
+    // ROOT CAUSE FIX: this used to always test a `/chat/completions` POST
+    // regardless of the provider's actual type. That's correct for
+    // text/coding/agents/research/vision (callText really does hit that
+    // endpoint), but callImage/callVideo/callSpeech/callAudioTranscription/
+    // callMusic below don't use that shape at all — most POST straight to
+    // the bare base URL with no suffix. Testing image/video/speech/audio/
+    // music providers against `/chat/completions` checks a URL real usage
+    // never calls, which is exactly how Cloudflare FLUX's baseUrl
+    // (".../ai/run") plus this hardcoded suffix produced the nonsensical
+    // ".../ai/run/chat/completions" 404 — a pure testing-methodology bug,
+    // not necessarily a sign the real image endpoint was ever broken. It
+    // also meant every non-text OpenAI-compatible provider's health (this
+    // feeds HealthMonitor's periodic checks, not just the manual Test
+    // button) was being judged against the wrong endpoint the whole time.
+    if (provider.type !== 'text' && provider.type !== 'coding' && provider.type !== 'agents' && provider.type !== 'research') {
+      return this.testNonChatConnection(provider, testedAt);
+    }
+
     const model = provider.defaultModel || 'default';
     const startedAt = Date.now();
     try {
@@ -61,6 +79,46 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
       const latencyMs = Date.now() - startedAt;
       const message = err?.message || String(err);
       return { ok: false, message, latencyMs, checkedModel: model, testedAt, category: classifyFailure(message) };
+    }
+  }
+
+  /**
+   * Lightweight, cost-free reachability check for image/video/speech/
+   * audio/music providers — deliberately does NOT attempt a real
+   * generation (that would spend real money/credits on every health
+   * check) and does NOT guess at a provider-specific request shape (most
+   * of these differ enough — Cloudflare's path-based model selection vs.
+   * OpenAI-shaped JSON bodies vs. fal.ai's queue-based API — that a single
+   * guessed shape would be wrong for some of them, the same mistake this
+   * function replaces). A GET to the base URL can't "succeed" in the
+   * generation sense, but the distinction that actually matters for a
+   * connectivity test is real: a 404/405 (this URL doesn't accept GET,
+   * expected for a POST-only endpoint) still proves the host is reachable
+   * and auth headers were accepted, which is a meaningfully different,
+   * useful signal from a DNS failure, a connection refusal, or a 401/403.
+   */
+  private async testNonChatConnection(provider: ProviderConfig, testedAt: number): Promise<ProviderTestResult> {
+    const startedAt = Date.now();
+    try {
+      const headers: Record<string, string> = {};
+      const { url, headers: finalHeaders } = this.buildAuth(provider, provider.baseUrl, headers);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const response = await fetch(url, { method: 'GET', headers: finalHeaders, signal: controller.signal });
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - startedAt;
+      if (response.status === 401 || response.status === 403) {
+        return { ok: false, message: `HTTP ${response.status} — the server is reachable, but rejected the API key/auth.`, latencyMs, testedAt, category: 'auth' };
+      }
+      // Any other response (2xx, or a 404/405 from a POST-only endpoint
+      // not accepting GET) means the host answered and auth wasn't
+      // rejected — as much as a cost-free check can confirm without
+      // actually generating something.
+      return { ok: true, message: `Reachable (HTTP ${response.status}). This checks connectivity only — it doesn't run a real generation, so a working test here doesn't guarantee the exact endpoint/model configuration is correct.`, latencyMs, testedAt };
+    } catch (err: any) {
+      const latencyMs = Date.now() - startedAt;
+      const message = err?.message || String(err);
+      return { ok: false, message, latencyMs, testedAt, category: classifyFailure(message) };
     }
   }
 

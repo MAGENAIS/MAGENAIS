@@ -119,3 +119,20 @@ const CATEGORY_LABEL: Record<FailureCategory, string> = {
 export function cooldownReasonLabel(category: FailureCategory): string {
   return CATEGORY_LABEL[category];
 }
+
+/**
+ * Whether this category is expected to resolve on its own with the exact
+ * same configuration (rate limits ease up, a network blip passes, a
+ * server recovers) — as opposed to auth/not_found/other, which are
+ * certain to fail again identically until a person actually changes the
+ * provider's configuration. Both kinds still use the skip mechanism above
+ * (isInCooldown) to avoid hammering a known-bad candidate on every single
+ * request, but only transient ones should ever be *displayed* as "cooling
+ * down (Xmin left)" — showing a countdown for a bad API key implies it'll
+ * just start working again once the timer runs out, which isn't true and
+ * is actively misleading. See SettingsModal.ts's friendlyStatus() and the
+ * provider row's cooldown badge for where this is used.
+ */
+export function isTransientCategory(category: FailureCategory): boolean {
+  return category === 'rate_limited' || category === 'timeout' || category === 'network';
+}

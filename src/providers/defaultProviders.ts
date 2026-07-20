@@ -479,7 +479,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'groq',
     baseUrl: 'https://api.groq.com/openai/v1',
     authType: 'bearer',
-    defaultModel: 'llama-3.3-70b-versatile',
+    defaultModel: 'openai/gpt-oss-120b', // ROOT CAUSE FIX (verified via web search, July 2026): llama-3.3-70b-versatile was deprecated by Groq on June 17, 2026 — this is Groq's own recommended replacement (console.groq.com/docs/deprecations).
     priority: 11,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -513,7 +513,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'openai-compatible',
     baseUrl: 'https://api.cerebras.ai/v1',
     authType: 'bearer',
-    defaultModel: 'llama-4-scout-17b-16e-instruct',
+    defaultModel: 'llama3.1-8b', // ROOT CAUSE FIX (verified via web search, July 2026): llama-4-scout-17b-16e-instruct matches the exact "Model does not exist" error reported — Cerebras's lineup has been genuinely volatile (one report shows their public model list cut to ~4 in April 2026), and sources disagree on Scout's current status. llama3.1-8b is the one model confirmed present across every source checked. Use the "Discover" button in this provider's editor (queries GET /v1/models directly) to see Cerebras's actual current lineup rather than trust any hardcoded list, this one included.
     priority: 13,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -656,23 +656,6 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     retries: 1,
   },
   {
-    id: 'preset-mistral',
-    name: 'Mistral AI (EU)',
-    type: 'text',
-    adapterId: 'openai-compatible',
-    baseUrl: 'https://api.mistral.ai/v1',
-    authType: 'bearer',
-    defaultModel: 'mistral-small-latest',
-    priority: 28,
-    enabled: false,
-    noKeyNeeded: false,
-    isPreset: true,
-    isBuiltIn: false,
-    notes: 'OpenAI-compatible. France/EU-based, GDPR-relevant if that matters for your use case. Has a free/experimental tier for limited use. Get a key at console.mistral.ai.',
-    timeoutMs: 30000,
-    retries: 1,
-  },
-  {
     id: 'preset-together',
     name: 'Together AI',
     type: 'text',
@@ -713,7 +696,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'openai',
     baseUrl: 'https://api.openai.com/v1',
     authType: 'bearer',
-    defaultModel: 'gpt-4o-mini',
+    defaultModel: 'gpt-5.4-mini', // ROOT CAUSE FIX (verified via web search, July 2026): gpt-4o-mini is on OpenAI's confirmed GPT-4o-family retirement path; gpt-5.4-mini is a current, documented model string (released March 17, 2026).
     priority: 15,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -731,7 +714,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://api.anthropic.com/v1',
     authType: 'header',
     authHeaderName: 'x-api-key',
-    defaultModel: 'claude-3-5-haiku-latest',
+    defaultModel: 'claude-haiku-4-5-20251001', // ROOT CAUSE FIX (verified via web search, July 2026): claude-3-5-haiku-latest is from the Claude 3.5 generation, well before Claude 4 — this is the current Haiku, using the full dated ID per Anthropic's own guidance to avoid alias strings in production.
     priority: 15,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -750,7 +733,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     authType: 'query',
     authQueryParam: 'key',
-    defaultModel: 'gemini-1.5-flash',
+    defaultModel: 'gemini-flash-latest', // ROOT CAUSE FIX (verified via web search, July 2026): gemini-1.5-flash is FULLY SHUT DOWN — Google's own docs confirm "all requests to these models return a 404 error." Using the auto-updating -latest alias (currently gemini-3.5-flash) instead of a dated string so this default doesn't go stale the same way again.
     priority: 15,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -790,7 +773,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: '',
+    notes: 'OpenAI-compatible. France/EU-based, GDPR-relevant if that matters for your use case. Has a free/experimental tier for limited use. Get a key at console.mistral.ai.',
     timeoutMs: 30000,
     retries: 1,
   },
@@ -835,13 +818,13 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     authType: 'bearer',
-    defaultModel: 'black-forest-labs/flux-1-schnell:free',
+    defaultModel: 'black-forest-labs/flux.2-klein', // ROOT CAUSE FIX (verified via web search, July 2026): flux-1-schnell:free matches the exact "not a valid model ID" error reported — OpenRouter's black-forest-labs catalog has moved entirely to the FLUX.2 family (Klein/Max/Flex/Pro); flux-1-schnell isn't offered at all anymore, free or otherwise. flux.2-klein is their current fastest/cheapest tier, but it is NOT free — see notes.
     priority: 32,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: "OpenRouter's free-tier image routing, where available.",
+    notes: "Paid — OpenRouter's black-forest-labs image models (FLUX.2 family) no longer have a free tier as of mid-2026. Priced per megapixel; flux.2-klein is their cheapest current option. For a genuinely free image option, see Pollinations, already enabled by default.",
     timeoutMs: 30000,
     retries: 1,
   },
@@ -853,6 +836,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://fal.run',
     authType: 'header',
     authHeaderName: 'Authorization',
+    authHeaderPrefix: 'Key ', // ROOT CAUSE FIX (verified via web search, July 2026): fal.ai uses a custom "Key" auth scheme (Authorization: Key {FAL_KEY}), not a bare token — without this prefix, every request would send a malformed Authorization header regardless of whether the key itself is valid.
     defaultModel: 'fal-ai/flux/schnell',
     priority: 25,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
@@ -870,8 +854,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     type: 'image',
     adapterId: 'replicate',
     baseUrl: 'https://api.replicate.com/v1',
-    authType: 'header',
-    authHeaderName: 'Authorization',
+    authType: 'bearer', // ROOT CAUSE FIX (verified via web search, July 2026 — Replicate's own changelog): was authType:'header' with no prefix, sending a bare unprefixed key. Replicate migrated from a custom "Token" scheme to standard Bearer auth in 2024 — this matches the exact "did not pass a valid authentication token" error reported.
     defaultModel: 'black-forest-labs/flux-schnell',
     priority: 25,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
@@ -976,6 +959,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://fal.run',
     authType: 'header',
     authHeaderName: 'Authorization',
+    authHeaderPrefix: 'Key ', // see preset-fal-ai above — same root cause fix
     defaultModel: 'fal-ai/luma-dream-machine',
     priority: 25,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
@@ -993,8 +977,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     type: 'video',
     adapterId: 'replicate',
     baseUrl: 'https://api.replicate.com/v1',
-    authType: 'header',
-    authHeaderName: 'Authorization',
+    authType: 'bearer', // see preset-replicate-image above — same root cause fix
     defaultModel: 'minimax/video-01',
     priority: 25,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
@@ -1099,6 +1082,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://api.deepgram.com/v1',
     authType: 'header',
     authHeaderName: 'Authorization',
+    authHeaderPrefix: 'Token ', // ROOT CAUSE FIX (verified via Deepgram's own official docs and SDKs, July 2026): Deepgram requires "Authorization: Token {key}", a custom prefix — a bare key fails auth even when it's a valid key.
     defaultModel: 'nova-2',
     priority: 25,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
@@ -1172,7 +1156,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     defaultModel: '',
     priority: 40,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
-    noKeyNeeded: false,
+    noKeyNeeded: true, // matches authType:'none' — Piper doesn't use an API key at all, only a Base URL pointing at wherever it's actually running (see ProviderValidator's fix for why an empty default here used to produce a confusing same-origin 404 instead of a clear "Base URL is required" message)
     isPreset: true,
     isBuiltIn: false,
     notes: 'Piper typically runs locally/self-hosted — set Base URL to your own running instance.',
@@ -1187,13 +1171,23 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://api.play.ht/api/v2',
     authType: 'header',
     authHeaderName: 'Authorization',
+    // ROOT CAUSE FIX (verified via PlayHT's own docs, July 2026): PlayHT
+    // requires a SECOND credential beyond the API key — an X-User-ID
+    // header with your PlayHT account's user ID — on every request. There
+    // was no field for this at all before, so even a perfectly valid API
+    // key would still fail every request. `headers` already exists and is
+    // merged into every outgoing request (see BaseAdapter) — this was
+    // simply never populated for this preset. ProviderValidator now also
+    // catches an unedited placeholder here, the same way it already does
+    // for Cloudflare's account ID in baseUrl.
+    headers: { 'X-User-ID': 'YOUR_USER_ID' },
     defaultModel: 'PlayHT2.0',
     priority: 25,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: '',
+    notes: 'Requires TWO credentials: the API key above, AND your PlayHT User ID — edit the "X-User-ID" value in this provider\'s Headers field (currently the placeholder "YOUR_USER_ID") to your real user ID from the PlayHT dashboard.',
     timeoutMs: 30000,
     retries: 1,
   },

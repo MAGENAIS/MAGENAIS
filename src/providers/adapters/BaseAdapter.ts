@@ -57,7 +57,7 @@ export abstract class BaseAdapter implements Adapter {
       headers['Authorization'] = 'Bearer ' + provider.apiKey;
     } else if (provider.authType === 'header' && provider.apiKey) {
       const headerName = provider.authHeaderName || 'Authorization';
-      headers[headerName] = provider.apiKey;
+      headers[headerName] = (provider.authHeaderPrefix || '') + provider.apiKey;
     } else if (provider.authType === 'query' && provider.apiKey) {
       const paramName = provider.authQueryParam || 'api_key';
       const sep = url.includes('?') ? '&' : '?';

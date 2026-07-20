@@ -69,6 +69,28 @@ export class ProviderRegistry {
     if (!existing) {
       throw new Error(`Provider '${id}' not found.`);
     }
+    // ROOT CAUSE FIX: a provider cooling down for a config-related reason
+    // (bad key, missing model, malformed URL) would otherwise stay skipped
+    // until its old cooldown timer ran out even AFTER the person fixed the
+    // actual problem — since editing config here didn't touch `health` at
+    // all, up to 15 minutes (MAX_COOLDOWN_MS) of "still cooling down"
+    // could follow a correct fix. Editing exactly the fields that could
+    // plausibly have caused the failure clears the cooldown/failure
+    // streak, so a corrected key is eligible again on the very next
+    // request instead of waiting out a timer that no longer means
+    // anything. Editing unrelated fields (priority, notes, timeoutMs)
+    // deliberately leaves health alone.
+    const configFieldsChanged = (['apiKey', 'baseUrl', 'defaultModel'] as const).some(
+      (key) => key in updates && updates[key] !== existing[key]
+    );
+    if (configFieldsChanged && existing.health) {
+      existing.health = {
+        ...existing.health,
+        cooldownUntil: undefined,
+        failureCount: 0,
+        failureCategory: undefined,
+      };
+    }
     Object.assign(existing, updates);
     this.eventBus.emit('provider:updated', id);
     Logger.debug(`Provider '${id}' updated.`);

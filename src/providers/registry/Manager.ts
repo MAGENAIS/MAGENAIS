@@ -590,6 +590,20 @@ export class ProviderManager {
       let settled = 0;
       let winnerFound = false;
 
+      // Nothing prevents two ProviderConfig entries from sharing a display
+      // name (only `id` has to be unique) — a built-in "Groq" with a bad
+      // key racing alongside a custom "Groq" entry with a working one is a
+      // real, easy-to-hit setup, and without this, the log would show the
+      // confusing-looking (but not actually contradictory) sequence
+      // "Groq failed — 401" immediately followed by "Groq succeeded
+      // first", two different entries that just happen to share a name.
+      // This disambiguates only when a collision actually exists in THIS
+      // race, so the common case (no collision) logs exactly as before.
+      const nameCounts = new Map<string, number>();
+      runnable.forEach(({ provider }) => nameCounts.set(provider.name, (nameCounts.get(provider.name) || 0) + 1));
+      const displayName = (provider: ProviderConfig): string =>
+        (nameCounts.get(provider.name) || 0) > 1 ? `${provider.name} (priority ${provider.priority})` : provider.name;
+
       const maybeLogBackgroundReport = () => {
         if (settled === total && winnerFound && attempts.length > 1) {
           log?.(`Provider report (background diagnostics):\n${formatProviderReport(attempts)}`, 'info');
@@ -625,7 +639,7 @@ export class ProviderManager {
             onRetry: (count: number) => { capturedRetryCount = count; },
           }),
           provider.timeoutMs,
-          provider.name
+          displayName(provider)
         ).then((result) => {
           settled++;
           const latencyMs = Date.now() - attemptStartedAt;
@@ -634,7 +648,7 @@ export class ProviderManager {
             lastCheck: Date.now(),
             responseTime: latencyMs,
           });
-          attempts.push({ name: provider.name, status: 'ok' });
+          attempts.push({ name: displayName(provider), status: 'ok' });
           this.lastLocalModelMissing = null;
           const isWinner = !winnerFound;
           Logger.event({
@@ -643,7 +657,7 @@ export class ProviderManager {
           });
           if (!winnerFound) {
             winnerFound = true;
-            log?.(`${provider.name} succeeded first — rendering result now.`, 'info');
+            log?.(`${displayName(provider)} succeeded first — rendering result now.`, 'info');
             // Cancel every other still-pending attempt. Abortable ones
             // (fetch-based adapters) stop immediately; non-abortable ones
             // are simply ignored once they eventually settle below.
@@ -671,13 +685,13 @@ export class ProviderManager {
               lastError: message,
             });
           }
-          attempts.push({ name: provider.name, status: 'error', detail: message });
+          attempts.push({ name: displayName(provider), status: 'error', detail: message });
           Logger.event({
             requestId, provider: provider.name, model: modelForThisProvider, latencyMs,
             retryCount: capturedRetryCount, failureReason: `${classifyFailure(message)}: ${message}`,
           });
           if (!winnerFound) {
-            log?.(`${provider.name} failed — ${message}`, 'error');
+            log?.(`${displayName(provider)} failed — ${message}`, 'error');
           }
           if (settled === total && !winnerFound) {
             reject(new Error(formatAllFailedMessage(type, attempts)));
@@ -884,6 +898,35 @@ export class ProviderManager {
     const adapter = provider ? this.registry.getAdapter(provider.adapterId) : undefined;
     if (!provider || !adapter?.testConnection) {
       const result: ProviderTestResult = { ok: false, message: 'This provider has no test implementation.', testedAt: Date.now() };
+      return result;
+    }
+
+    // ROOT CAUSE FIX: this used to go straight to adapter.testConnection(),
+    // which meant the Test button never ran the same general validation
+    // callWithFallback already runs before a real request (see
+    // ProviderValidator.validateForCall, and its filterForConnectivity
+    // call site above). Each adapter's testConnection had to re-implement
+    // its own ad-hoc pre-checks instead — OpenAICompatibleAdapter's own
+    // version checked `authType !== 'none'` before requiring a Base URL,
+    // which is wrong for a provider like Piper (self-hosted TTS): it has
+    // authType:'none' (no API key needed) but still genuinely needs a
+    // real Base URL pointing at wherever it's actually running. An empty
+    // default baseUrl plus that wrong condition meant the check never
+    // fired, and the "test" silently became a same-origin relative fetch
+    // (e.g. hitting this app's OWN dev server at "/chat/completions"),
+    // producing a fast, contextless 404 with no clue what was actually
+    // wrong. validateForCall's check is keyed on whether the ADAPTER is
+    // genuinely local/browser-native, a different and correct question
+    // from whether an API key is needed.
+    const validation = ProviderValidator.validateForCall(provider, !!(adapter && adapter.call));
+    if (!validation.valid) {
+      const result: ProviderTestResult = {
+        ok: false,
+        message: validation.errors.join(' '),
+        testedAt: Date.now(),
+        category: 'other',
+      };
+      this.registry.updateProvider(id, { lastTestResult: result });
       return result;
     }
 
