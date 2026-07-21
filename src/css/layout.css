@@ -153,7 +153,31 @@ main {
   height: 100%;
 }
 @media (max-width: 880px){
-  main{ grid-template-columns: 1fr; }
+  /* ROOT CAUSE of "output/pipeline panel missing on mobile": collapsing to
+     a single column turns section.control and section.output into two
+     GRID ROWS instead of two side-by-side columns. grid-template-rows was
+     still "100%" (a single explicit row) from the desktop rule above, so
+     that one row (containing .control) claimed all of main's height and
+     .output got pushed into a leftover implicit row with ~0 space. Since
+     html/body/#app all use overflow:hidden by design (see main.css) and
+     rely on .control/.output scrolling *internally*, there was no way to
+     scroll down and reach .output — it was effectively trapped off-screen.
+     Fix: let both rows size to their own content (auto), let main itself
+     scroll vertically to accommodate the stacked content, and switch each
+     section from an internally-scrolling box to a normal content block so
+     mobile behaves like a single continuously scrollable page. */
+  main{
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  section.control,
+  section.output{
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
 }
 section.control {
   border-right: 1px solid var(--line);
