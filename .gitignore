@@ -1,10 +1,8 @@
-
 # Dependencies
 node_modules/
 
-# Build
+# Build output
 dist/
-build/
 coverage/
 
 # Logs
