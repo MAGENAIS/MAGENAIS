@@ -19,6 +19,12 @@ export type ProviderType =
 
 export type AuthType = 'bearer' | 'header' | 'query' | 'none';
 
+// Deliberately imported with `import type` — RuntimeEnvironment is only
+// ever used here as a type annotation on ProviderConfig, never evaluated,
+// so this can't create a real (value-level) dependency cycle between
+// core/Environment.ts and providers/types.ts.
+import type { RuntimeEnvironment } from '../core/Environment';
+
 export interface ProviderConfig {
   id: string;
   name: string;
@@ -63,6 +69,20 @@ export interface ProviderConfig {
   // OpenAI-compatible (or other) provider needs to work around a CORS
   // block; no adapter-specific code is required.
   requiresServerProxy?: boolean;
+  // ENVIRONMENT-AWARE PROVIDER MANAGEMENT: an explicit allow-list of
+  // RuntimeEnvironments this provider can ever work in — e.g. a future
+  // adapter that only makes sense inside a packaged desktop shell (direct
+  // filesystem access, a bundled local binary, etc.). Unset (the default,
+  // and every current provider) means "no particular runtime restriction
+  // beyond what's already implied by requiresServerProxy" — see
+  // Capability.ts's computeProviderCapability, which is what actually
+  // reads this. Deliberately NOT used for the GitHub-Pages-can't-reach-a-
+  // proxy case: that's already fully described by requiresServerProxy +
+  // Environment.hasServerProxy, and duplicating the same fact here would
+  // just create two places it could drift apart. This field exists purely
+  // as an extension point for restrictions requiresServerProxy can't
+  // express.
+  supportedEnvironments?: RuntimeEnvironment[];
   // PHASE 7 — Provider Testing: result of the last "Test" click in Keys &
   // Providers (see ProviderManager.testProvider / SettingsModal's Test
   // button). Persisted via the same saveProviders() path as every other

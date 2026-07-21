@@ -1,6 +1,8 @@
 import { ProviderRegistry } from './registry/Registry';
 import { ProviderConfig, ProviderScore, ProviderType, ProviderHealth } from './types';
 import { Logger } from '../core/Logger';
+import { Environment } from '../core/Environment';
+import { LOCAL_ADAPTER_IDS } from './RoutingMode';
 
 export interface RouterOptions {
   // Weights for scoring
@@ -91,7 +93,7 @@ export class SmartRouter {
       (successScore * weights.successRateWeight) +
       (costScore * weights.costWeight) +
       (quotaScore * weights.quotaWeight)
-    ) / totalWeight;
+    ) / totalWeight + this.environmentAffinityScore(provider);
 
     return {
       providerId: provider.id,
@@ -105,6 +107,32 @@ export class SmartRouter {
         quota: quotaScore,
       },
     };
+  }
+
+  /**
+   * ENVIRONMENT-AWARE PROVIDER MANAGEMENT — "Browser providers: Automatically
+   * prioritize Transformers.js/WebLLM/Puter/etc." On a static host with no
+   * backend of its own (GitHub Pages, or any other plain Browser deployment
+   * — see Environment.isStaticHost), a fully local/in-browser provider
+   * (LOCAL_ADAPTER_IDS — the same set filterForConnectivity/RoutingMode
+   * already use, not a new list) is strictly more reliable than a cloud
+   * provider that might turn out to need the CORS proxy this environment
+   * doesn't have (requiresServerProxy — see Manager.ts's filterForEnvironment,
+   * which already excludes the GUARANTEED-to-fail ones; this is a softer
+   * nudge for the ones that legitimately work either way, e.g. a
+   * properly-CORS-enabled cloud API). Added on top of the weighted sum
+   * rather than folded into it, so it doesn't require new RouterOptions
+   * wiring and can never change the RELATIVE order among non-local
+   * providers or among local providers themselves — it only ever moves the
+   * local/local group ahead of the cloud group.
+   *
+   * Zero effect on Desktop/Localhost (isStaticHost is false there) —
+   * "Desktop must behave exactly the same. Localhost must behave exactly
+   * the same" holds by construction, not by a separate check.
+   */
+  private environmentAffinityScore(provider: ProviderConfig): number {
+    if (!Environment.isStaticHost) return 0;
+    return LOCAL_ADAPTER_IDS.has(provider.adapterId) ? 100 : 0;
   }
 
   private healthToScore(status: ProviderHealth['status']): number {

@@ -32,6 +32,8 @@ import {
   getStorageInfo,
 } from '../providers/LocalModelDownloadManager';
 import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFailure, isTransientCategory, FailureCategory } from '../providers/HealthCooldown';
+import { computeProviderCapability } from '../providers/registry/Capability';
+import { Environment } from '../core/Environment';
 import { Config } from '../core/Config';
 import { Logger } from '../core/Logger';
 
@@ -133,6 +135,16 @@ function friendlyStatus(
   localTask: { task: LocalModelTask; role?: 'caption' | 'ocr' } | null
 ): { label: string; color: string } {
   if (!p.enabled) return { label: 'Disabled', color: 'var(--ink-faint)' };
+
+  // ENVIRONMENT-AWARE PROVIDER MANAGEMENT: a requiresServerProxy provider
+  // running somewhere with no backend (GitHub Pages, etc.) is a more
+  // fundamental blocker than "missing API key" or "placeholder config" —
+  // no amount of filling in fields here would make it work, so it's
+  // checked first among the "why can't this run" branches.
+  const capability = computeProviderCapability(p);
+  if (!capability.available) {
+    return { label: capability.disabledReason || 'Unavailable in this environment', color: 'var(--amber, #d8a23f)' };
+  }
 
   if (!p.noKeyNeeded && !p.apiKey) {
     return { label: 'Missing API Key', color: 'var(--amber, #d8a23f)' };
@@ -459,8 +471,18 @@ export class SettingsModal {
       // providers. Color now reflects real usability: green only when it
       // can actually be called right now; amber for "enabled but missing
       // its key"; gray for actually disabled.
-      const isUsable = p.enabled && (p.noKeyNeeded || !!p.apiKey);
-      const statusColor = isUsable ? 'var(--moss)' : p.enabled ? 'var(--rust)' : 'var(--ink-faint)';
+      // ENVIRONMENT-AWARE PROVIDER MANAGEMENT: a provider can be fully
+      // configured (enabled, key set) and still be unusable RIGHT HERE —
+      // e.g. a requiresServerProxy provider on GitHub Pages, which has no
+      // backend to route through (see Capability.ts/Environment.ts). This
+      // is checked independently of, and in addition to, the existing
+      // enabled/key-set checks below, same "why can't this run" spirit as
+      // the cooldown/vision-only badges already on this row.
+      const capability = computeProviderCapability(p);
+      const isUsable = p.enabled && (p.noKeyNeeded || !!p.apiKey) && capability.available;
+      const statusColor = !capability.available && p.enabled
+        ? 'var(--amber, #d8a23f)'
+        : isUsable ? 'var(--moss)' : p.enabled ? 'var(--rust)' : 'var(--ink-faint)';
       const keyStatus = p.noKeyNeeded
         ? '<span class="key-status set">no key needed</span>'
         : p.apiKey
@@ -469,6 +491,17 @@ export class SettingsModal {
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
       const visionBadge = isVisionOnly(p) ? ' · <span style="color:var(--violet, #8a6fd8);">vision-only</span>' : '';
       const localBadge = LOCAL_ADAPTER_IDS.has(p.adapterId) ? ' · <span style="color:var(--sage, #4a9d6a);">local</span>' : '';
+      // Runtime badge (Browser/Server/Desktop) — purely informational, from
+      // computeProviderCapability's metadata-driven environmentBadge, never
+      // a hardcoded provider-name list. Only shown when it adds information
+      // beyond the existing "local" badge above (i.e. skip 'Browser' when
+      // localBadge already says so) to avoid redundant clutter on the row.
+      const environmentBadge = capability.environmentBadge && capability.environmentBadge !== 'Browser'
+        ? ` · <span style="color:var(--ink-faint);" title="This provider's declared requirements are best suited to a ${capability.environmentBadge.toLowerCase()} runtime.">${escapeHtml(capability.environmentBadge)}</span>`
+        : '';
+      const environmentWarning = !capability.available
+        ? ` · <span style="color:var(--amber, #d8a23f);" title="Running on ${Environment.current} — this provider's requirements aren't met here.">${escapeHtml(capability.disabledReason || 'unavailable here')}</span>`
+        : '';
       const cooldownCategory = p.health?.failureCategory as FailureCategory | undefined;
       const cooldownBadge = isInCooldown(p.health)
         ? cooldownCategory && isTransientCategory(cooldownCategory)
@@ -492,7 +525,7 @@ export class SettingsModal {
         <div class="provider-row-top">
           <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
             <span class="provider-name" style="color:${statusColor};">${escapeHtml(p.name)}</span>
-            <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}${visionBadge}${localBadge}${cooldownBadge}</span>
+            <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}${visionBadge}${localBadge}${environmentBadge}${environmentWarning}${cooldownBadge}</span>
             ${testResultLine}
           </div>
           <label style="display:flex; align-items:center; gap:5px; cursor:pointer; flex-shrink:0;" title="${p.noKeyNeeded || p.isBuiltIn || p.apiKey ? 'Enable or disable this provider' : 'Enabled providers activate automatically once you add an API key below'}">

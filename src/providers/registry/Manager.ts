@@ -8,6 +8,8 @@ import { ProviderValidator } from '../../config/ProviderValidator';
 import { ProviderAttempt, formatProviderReport, formatAllFailedMessage } from '../ProviderReport';
 import { isInCooldown, cooldownRemainingLabel, cooldownReasonLabel, classifyFailure } from '../HealthCooldown';
 import { LOCAL_ADAPTER_IDS, getRoutingMode } from '../RoutingMode';
+import { computeProviderCapability } from './Capability';
+import { Environment } from '../../core/Environment';
 
 // ---------------------------------------------------------------------------
 // PHASE 3a — Offline mode detection.
@@ -420,6 +422,39 @@ export class ProviderManager {
    * an individual adapter does internally.
    */
   /**
+   * Narrows a candidate list to providers actually usable in the current
+   * RuntimeEnvironment (see core/Environment.ts and ./Capability.ts) — e.g.
+   * excludes `requiresServerProxy` providers when running on GitHub Pages
+   * or any other static host with no backend proxy behind it. Unlike
+   * filterForConnectivity below, this is NOT a soft/imperfect signal that
+   * falls back to "try everything" when it would empty the list —
+   * Environment.hasServerProxy is a deterministic fact about the current
+   * deployment (not a coarse runtime reading like navigator.onLine), so a
+   * `requiresServerProxy` provider on a static host is GUARANTEED to fail
+   * (its fetch to /api/magenais-proxy has nothing to answer it), never
+   * just "maybe". Racing it anyway would only ever burn a slot and its
+   * full timeoutMs on a doomed request — exactly the "instead of failing"
+   * outcome the environment-aware provider management requirement calls
+   * out. Same hard-filter philosophy as applyRoutingMode's 'local'/'cloud'
+   * modes, and for the same reason.
+   */
+  private filterForEnvironment(
+    candidates: ProviderConfig[],
+    log?: (message: string, level?: 'info' | 'warn' | 'error') => void
+  ): ProviderConfig[] {
+    const filtered = candidates.filter(p => computeProviderCapability(p).available);
+    if (filtered.length !== candidates.length) {
+      const excluded = candidates.filter(p => !filtered.includes(p));
+      log?.(
+        `Running on ${Environment.current} with no backend server available — ` +
+        `${excluded.length} provider(s) that require one were excluded: ${excluded.map(p => p.name).join(', ')}.`,
+        'info'
+      );
+    }
+    return filtered;
+  }
+
+  /**
    * Narrows a candidate list to offline-capable providers when the device
    * currently has no network connectivity — see the isOffline()/
    * LOCAL_ADAPTER_IDS doc comments above for what "offline-capable"
@@ -491,15 +526,18 @@ export class ProviderManager {
   ): Promise<any> {
     const candidates = this.filterForConnectivity(
       this.applyRoutingMode(
-        router
-          .getSortedProviders(type)
-          .filter(p => p.noKeyNeeded || !!p.apiKey)
-          // A provider can be registered under type:'text' purely so
-          // callVision() can find it (see the `visionOnly` doc comment in
-          // types.ts) — it has no ability to answer a genuine text-generation
-          // request, so exclude it here to avoid a guaranteed, noisy failure
-          // eating a slot (and a real timeout window) in the fallback chain.
-          .filter(p => !p.visionOnly),
+        this.filterForEnvironment(
+          router
+            .getSortedProviders(type)
+            .filter(p => p.noKeyNeeded || !!p.apiKey)
+            // A provider can be registered under type:'text' purely so
+            // callVision() can find it (see the `visionOnly` doc comment in
+            // types.ts) — it has no ability to answer a genuine text-generation
+            // request, so exclude it here to avoid a guaranteed, noisy failure
+            // eating a slot (and a real timeout window) in the fallback chain.
+            .filter(p => !p.visionOnly),
+          log
+        ),
         log
       ),
       log
@@ -507,11 +545,17 @@ export class ProviderManager {
 
     if (candidates.length === 0) {
       const mode = getRoutingMode();
+      const envBlocked = router.getSortedProviders(type)
+        .filter(p => (p.noKeyNeeded || !!p.apiKey) && !p.visionOnly)
+        .some(p => !computeProviderCapability(p).available);
       throw new Error(
         mode !== 'hybrid'
           ? `No enabled '${type}' provider matches routing mode "${mode === 'local' ? 'Local Only' : 'Cloud Only'}" — ` +
             `switch modes or add/enable a matching provider in Keys & Providers.`
-          : `No configured/enabled provider is available for '${type}' — add an API key for at least one provider of this type in Keys & Providers.`
+          : envBlocked
+            ? `No '${type}' provider is available on ${Environment.current} — the configured option(s) require a backend server ` +
+              `that isn't reachable here. Add a browser-native provider (Transformers.js/WebLLM/Puter) or self-host with server/proxy-server.mjs.`
+            : `No configured/enabled provider is available for '${type}' — add an API key for at least one provider of this type in Keys & Providers.`
       );
     }
 
@@ -776,17 +820,20 @@ export class ProviderManager {
     const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'transformers', 'ollama'];
     const candidates = this.filterForConnectivity(
       this.applyRoutingMode(
-        router
-          .getSortedProviders('text')
-          .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
-          // 'transformers' now backs two distinct provider entries sharing
-          // this one adapterId — a genuine text-generation one (see
-          // builtin-transformers-text) and an image-captioning one (see
-          // builtin-transformers-vision, visionOnly:true). Only the latter
-          // belongs here; including the text entry would try to run its
-          // chat model through an image-to-text pipeline and guarantee a
-          // failure on every single Vision request.
-          .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true),
+        this.filterForEnvironment(
+          router
+            .getSortedProviders('text')
+            .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
+            // 'transformers' now backs two distinct provider entries sharing
+            // this one adapterId — a genuine text-generation one (see
+            // builtin-transformers-text) and an image-captioning one (see
+            // builtin-transformers-vision, visionOnly:true). Only the latter
+            // belongs here; including the text entry would try to run its
+            // chat model through an image-to-text pipeline and guarantee a
+            // failure on every single Vision request.
+            .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true),
+          log
+        ),
         log
       ),
       log
@@ -894,6 +941,11 @@ export class ProviderManager {
   getProvider(id: string) {
     return this.registry.getProvider(id);
   }
+  /** Runtime environment capability for one provider — see ./Capability.ts. Exposed here so UI callers (SettingsModal's Provider Cards) go through the same ProviderManager surface as everything else, rather than importing Capability.ts directly. */
+  getCapability(id: string) {
+    const provider = this.registry.getProvider(id);
+    return provider ? computeProviderCapability(provider) : undefined;
+  }
   updateProvider(id: string, updates: Partial<ProviderConfig>) {
     this.registry.updateProvider(id, updates);
     // Auto-save? Could be debounced.
@@ -963,6 +1015,23 @@ export class ProviderManager {
       const result: ProviderTestResult = {
         ok: false,
         message: validation.errors.join(' '),
+        testedAt: Date.now(),
+        category: 'other',
+      };
+      this.registry.updateProvider(id, { lastTestResult: result });
+      return result;
+    }
+
+    // Same reasoning as filterForEnvironment above: on a static host with
+    // no backend proxy, this provider is GUARANTEED to fail — testing it
+    // anyway would just produce a confusing "404" from GitHub Pages' own
+    // 404 page (not even a real proxy error) instead of the clear,
+    // actionable message computeProviderCapability already has ready.
+    const capability = computeProviderCapability(provider);
+    if (!capability.available) {
+      const result: ProviderTestResult = {
+        ok: false,
+        message: `${provider.name}: ${capability.disabledReason} (running on ${Environment.current}).`,
         testedAt: Date.now(),
         category: 'other',
       };
