@@ -1,0 +1,48 @@
+[35mpublic/plugins/sample-plugin/index.js[m[36m:[m  [1;31mconsole[m.log('Sample plugin activated.');
+[35mpublic/plugins/sample-plugin/index.js[m[36m:[m  [1;31mconsole[m.log('Sample plugin deactivated.');
+[35mscripts/check-providers.mjs[m[36m:[m  [1;31mconsole[m.error(`✗ ${missing.length} adapterId(s) referenced by defaultProviders.ts have no adapter registered in Kernel.ts:`);
+[35mscripts/check-providers.mjs[m[36m:[m  missing.forEach(id => [1;31mconsole[m.error(`  - ${id}`));
+[35mscripts/check-providers.mjs[m[36m:[m  [1;31mconsole[m.log(`✓ All ${referenced.size} adapterId(s) referenced by defaultProviders.ts are registered in Kernel.ts.`);
+[35mscripts/verify-cache-fix.ts[m[36m:[m  [1;31mconsole[m.log('first.finalOutput  =', first.finalOutput);
+[35mscripts/verify-cache-fix.ts[m[36m:[m  [1;31mconsole[m.log('second.finalOutput =', second.finalOutput);
+[35mscripts/verify-cache-fix.ts[m[36m:[m  [1;31mconsole[m.log('third.finalOutput  =', third.finalOutput, '(Regenerate, identical inputs to `second`)');
+[35mscripts/verify-cache-fix.ts[m[36m:[m  [1;31mconsole[m.log('executor call count =', callCount);
+[35mscripts/verify-cache-fix.ts[m[36m:[m  [1;31mconsole[m.log(pass ? '\nPASS: second Generate click returns a fresh result, not the first click\'s cached output.'
+[35mscripts/verify-free-provider-force-enable.ts[m[36m:[m  [1;31mconsole[m.log((cond ? 'PASS' : 'FAIL') + ': ' + label);
+[35mscripts/verify-persistence-fix.ts[m[36m:[m  [1;31mconsole[m.log('restored API key =', restored?.apiKey);
+[35mscripts/verify-persistence-fix.ts[m[36m:[m  [1;31mconsole[m.log(pass
+[35mscripts/verify-provider-routing-fixes.ts[m[36m:[m  [1;31mconsole[m.log((cond ? 'PASS' : 'FAIL') + ': ' + label);
+[35mscripts/verify-provider-routing-fixes.ts[m[36m:[m    [1;31mconsole[m.log('  error was:', err.message);
+[35mscripts/verify-workflow-chaining-fixes.ts[m[36m:[m  [1;31mconsole[m.log((cond ? 'PASS' : 'FAIL') + ': ' + label);
+[35mserver/proxy-server.mjs[m[36m:[m    const handled = await handleProxyRequest(req, res, [1;31mconsole[m);
+[35mserver/proxy-server.mjs[m[36m:[m    [1;31mconsole[m.error('[server] unhandled error:', err);
+[35mserver/proxy-server.mjs[m[36m:[m  [1;31mconsole[m.log(`MAGENAIS production server running at http://localhost:${port}`);
+[35mserver/proxy-server.mjs[m[36m:[m  [1;31mconsole[m.log(`  Serving static files from: ${distDir}`);
+[35mserver/proxy-server.mjs[m[36m:[m  [1;31mconsole[m.log(`  CORS proxy mounted at:     ${PROXY_PATH}`);
+[35mserver/proxyHandler.mjs[m[36m:[m  else [1;31mconsole[m.log(message);
+[35mserver/proxyHandler.mjs[m[36m:[m  else [1;31mconsole[m.warn(message);
+[35mserver/proxyHandler.mjs[m[36m:[mexport async function handleProxyRequest(req, res, log = [1;31mconsole[m) {
+[35msrc/bootstrap/Bootstrap.ts[m[36m:[m            [1;31mconsole[m.log("First run detected.");
+[35msrc/bootstrap/Bootstrap.ts[m[36m:[m            [1;31mconsole[m.log("MAGENAIS initialized.");
+[35msrc/bootstrap/Bootstrap.ts[m[36m:[m            [1;31mconsole[m.log("MAGENAIS already initialized.");
+[35msrc/config/ProviderRegistry.ts[m[36m:[m            [1;31mconsole[m.log("Default providers installed.");
+[35msrc/core/Logger.ts[m[36m:[m   * free text, so a person with the browser [1;31mconsole[m open (or piping it
+[35msrc/core/Logger.ts[m[36m:[m   * attempts stay debug-only so normal use doesn't spam the [1;31mconsole[m.
+[35msrc/core/Logger.ts[m[36m:[m    [1;31mconsole[m[isFailure ? 'warn' : 'log'](prefix, parts.join(' '));
+[35msrc/core/Logger.ts[m[36m:[m    [1;31mconsole[m[level === 'debug' ? 'log' : level](prefix, message, ...args);
+[35msrc/core/state/Persistence.ts[m[36m:[m            [1;31mconsole[m.warn(`Persistence: localStorage quota exceeded — trimmed history to ${keep} entries to save the rest of the app state.`);
+[35msrc/core/state/Persistence.ts[m[36m:[m      [1;31mconsole[m.error('Persistence: failed to save to localStorage (quota exceeded and trimming did not help).', err);
+[35msrc/core/state/Reducers.ts[m[36m:[m      [1;31mconsole[m.warn(`Reducer for ${actionType} already exists, overwriting`);
+[35msrc/core/state/Store.ts[m[36m:[m      [1;31mconsole[m.warn(`No reducer for action type: ${action.type}`);
+[35msrc/main.ts[m[36m:[m  [1;31mconsole[m.error('Fatal bootstrap error:', err);
+[35msrc/providers/defaultProviders.ts[m[36m:[m    defaultModel: 'openai/gpt-oss-120b', // ROOT CAUSE FIX (verified via web search, July 2026): llama-3.3-70b-versatile was deprecated by Groq on June 17, 2026 — this is Groq's own recommended replacement ([1;31mconsole[m.groq.com/docs/deprecations).
+[35msrc/providers/defaultProviders.ts[m[36m:[m    notes: 'OpenAI-compatible, very fast inference, generous free tier. Get a free key at [1;31mconsole[m.groq.com/keys.',
+[35msrc/providers/defaultProviders.ts[m[36m:[m    notes: 'OpenAI-compatible ("compatible-mode" endpoint). Alibaba Cloud DashScope — qwen-turbo (fastest/cheapest), qwen-plus (default, balanced), or qwen-max (strongest) as the Preferred model. Get a key at dashscope.[1;31mconsole[m.aliyun.com (international sign-up available at modelstudio.[1;31mconsole[m.alibabacloud.com).',
+[35msrc/providers/defaultProviders.ts[m[36m:[m    notes: 'OpenAI-compatible. France/EU-based, GDPR-relevant if that matters for your use case. Has a free/experimental tier for limited use. Get a key at [1;31mconsole[m.mistral.ai.',
+[35msrc/ui/SettingsModal.ts[m[36m:[m                <span>Debug mode — verbose logging in the browser [1;31mconsole[m (request IDs, provider/model, latency, tokens, retries, failure reasons)</span>
+[35msrc/ui/SettingsModal.ts[m[36m:[m              <p class="hint">Off by default to keep the [1;31mconsole[m quiet during normal use. A failed provider call is always logged
+[35msrc/ui/SettingsModal.ts[m[36m:[m   * "check the [1;31mconsole[m." Local-model rows also show LocalModelDownloadManager's
+[35msrc/ui/modes/AudioMode.ts[m[36m:[m          (msg: string) => [1;31mconsole[m.log(msg),
+[35msrc/workflows/Engine.ts[m[36m:[m   * the browser DevTools [1;31mconsole[m via `Logger[level]` — every "Trying X…",
+[35msrc/workflows/Registry.ts[m[36m:[m      [1;31mconsole[m.warn(`Overwriting executor for type ${executor.type}`);
+[35mvite.config.ts[m[36m:[m        const handled = await handleProxyRequest(req, res, [1;31mconsole[m);
