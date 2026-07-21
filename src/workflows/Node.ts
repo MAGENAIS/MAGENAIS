@@ -99,18 +99,29 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
       // to that provider's adapterId instead of leaving this default.
       modelAdapterHint: node.config?.modelAdapterHint ?? 'pollinations',
       temperature: node.config?.temperature,
-      // ROOT CAUSE of "output gets cut off mid-sentence/mid-table with no
-      // way to scroll to the rest": this was `node.config?.maxTokens` with
-      // no fallback. No mode UI (TextMode included) ever sets maxTokens on
-      // node.config, so this was always `undefined`, and every adapter's
-      // own `options?.maxTokens ?? 1024` (or as low as 150 for local
-      // summarization) silently took over. A modest multi-table comparison
-      // answer blows past 1024 tokens easily, so the model gets cut off
-      // mid-word — that's not a rendering/CSS bug, there's genuinely
-      // nothing further generated to scroll to. 4096 gives real headroom;
-      // an explicit node.config.maxTokens (once a mode exposes that
+      // ROOT CAUSE of "output gets cut off mid-sentence/mid-table/mid-
+      // function with no way to scroll to the rest": this was
+      // `node.config?.maxTokens` with no fallback. No mode UI (TextMode
+      // included) ever sets maxTokens on node.config, so this was always
+      // `undefined`, and every adapter's own `options?.maxTokens ?? 1024`
+      // (or as low as 150 for local summarization) silently took over. A
+      // modest multi-table comparison answer blows past 1024 tokens
+      // easily, so the model gets cut off mid-word — that's not a
+      // rendering/CSS bug, there's genuinely nothing further generated to
+      // scroll to. Raised once already to 4096, but that's still not
+      // enough for genuinely long-form output — a full one-file website
+      // (HTML+CSS+JS with a form, validation logic, and styling, e.g. the
+      // Coding tab) or a long article/report can easily need more than
+      // 4096 tokens to finish without truncating mid-function. None of
+      // the actual provider adapters (Anthropic/OpenAI-compatible/
+      // Hugging Face/Ollama/Gemini/WebLLM) impose their own hard ceiling
+      // below whatever is requested here, so there's no technical reason
+      // to keep this artificially low — 8192 gives real headroom for
+      // long-form generation across every mode (Text, Coding, Research,
+      // Documents, Agents, ...) without special-casing any one of them.
+      // An explicit node.config.maxTokens (once a mode exposes that
       // control) still always wins over this default.
-      maxTokens: node.config?.maxTokens ?? 4096,
+      maxTokens: node.config?.maxTokens ?? 8192,
       width: node.config?.width,
       height: node.config?.height,
       duration: node.config?.duration,
