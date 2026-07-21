@@ -91,7 +91,7 @@ export class AudioMode extends Mode {
         </select>
       </div>
       <div id="audioKeyWarning"></div>
-      <p class="hint" id="audioPipelineHint">Pipeline: Browser Speech Synthesis (free) → Puter.js (free) → your API keys (optional, tried last)</p>
+      <p class="hint" id="audioPipelineHint">Pipeline: Browser Speech Synthesis (free) → your API keys (optional, tried last)</p>
       <button class="run-btn" id="runBtn">▸ Generate Audio</button>
     `);
 
@@ -146,7 +146,7 @@ export class AudioMode extends Mode {
         ? 'Pipeline: Transformers.js MusicGen (browser, free) → your API keys (optional, tried last)'
         : isPodcast
         ? 'Pipeline: script generation → TTS per line → stitched WAV'
-        : 'Pipeline: Browser Speech Synthesis (free) → Puter.js (free) → your API keys (optional, tried last)';
+        : 'Pipeline: Browser Speech Synthesis (free) → your API keys (optional, tried last)';
     }
     // Also update podcast sub-fields when switching to podcast
     if (isPodcast) this.updatePodcastSubFields();

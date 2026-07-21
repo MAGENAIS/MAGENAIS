@@ -311,11 +311,21 @@ export class ProviderManager {
     // resurrecting a provider the user has since, deliberately, turned
     // off themselves (evidenced by its id already being present in
     // `stored`): someone who wants only their own keyed providers to
-    // compete, with Ollama/WebLLM/Puter/etc. fully excluded rather than
+    // compete, with Ollama/WebLLM/etc. fully excluded rather than
     // just deprioritized, can now flip them off in Keys & Providers and
     // have that choice actually stick across reloads.
+    // Puter is deliberately excluded from this auto-enable (adapterId
+    // check below): its `enabled: false` default in defaultProviders.ts
+    // is meant to stick for every first-time user, not just be a
+    // starting point this loop immediately overrides. Previously Puter
+    // qualified for force-enable purely because it's noKeyNeeded, which
+    // meant setting `enabled: false` on its default entry had no real
+    // effect for anyone on a fresh install/new browser — it got flipped
+    // back to true here on the very first load regardless, silently
+    // reintroducing Puter's occasional "Upgrade Now" paywall modal even
+    // for users who'd explicitly asked for it to stay off by default.
     for (const p of mergedMap.values()) {
-      if (p.noKeyNeeded && p.isBuiltIn && !p.enabled && !storedIds.has(p.id)) {
+      if (p.noKeyNeeded && p.isBuiltIn && p.adapterId !== 'puter' && !p.enabled && !storedIds.has(p.id)) {
         p.enabled = true;
         Logger.info(`ProviderManager: enabled free built-in provider "${p.name}" for the first time (it costs nothing and needs no key).`);
       }

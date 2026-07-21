@@ -42,7 +42,7 @@ export class TextMode extends Mode {
           </div>
         </div>
       </details>
-      <p class="hint">Pipeline: Ollama (local, if installed) → WebLLM (browser) → Puter.js (free) → your API keys (optional, tried last)</p>
+      <p class="hint">Pipeline: Ollama (local, if installed) → WebLLM (browser) → Pollinations (needs free key) → your API keys (optional, tried last)</p>
       <button class="run-btn" id="runBtn">▸ Generate</button>
     `);
 

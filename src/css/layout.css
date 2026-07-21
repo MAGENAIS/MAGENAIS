@@ -74,6 +74,35 @@ header.topbar {
   padding-left:10px;
   text-shadow: 0 1px 4px rgba(0,0,0,0.6);
 }
+@media (max-width: 880px){
+  /* ROOT CAUSE of "logo/favicon stacked above the MAGENAIS title on
+     mobile instead of beside it": .brand is a wrapping flex row
+     containing the logo image AND the whole text block (title + tagline)
+     as its only two items. On a narrow phone viewport the combined width
+     of logo + title + tagline doesn't fit one line, so flex-wrap breaks
+     the row at the FIRST point it runs out of space — which is between
+     the logo and the text block, since that's the first gap — dropping
+     the logo onto its own line above everything else. Fix: stop the
+     logo from ever being a wrap candidate (flex-shrink:0, and the row
+     itself switches to nowrap so logo+title always share a line), and
+     let wrapping happen one level deeper instead — inside .brand-text,
+     where the tagline alone drops under the title. That reproduces the
+     original "logo immediately left of MAGENAIS" layout, just with the
+     tagline beneath instead of squeezed onto the same crowded line.
+     ROOT CAUSE FIX (this threshold): was previously max-width:560px,
+     narrower than the 880px breakpoint the rest of the app treats as
+     "mobile" (see main's grid-template-columns switch above) — so on a
+     real phone with a CSS viewport wider than 560px but still well
+     within the app's own mobile range, this rule never engaged at all
+     and the logo kept wrapping above the title exactly as described.
+     Matching 880px here means "logo beside title" now activates at the
+     same point the rest of the layout switches to its mobile behavior,
+     instead of being its own, narrower, inconsistent threshold. */
+  .brand{ flex-wrap:nowrap; align-items:center; }
+  .brand-logo{ flex-shrink:0; height:28px; }
+  .brand-text{ flex-direction:column; align-items:flex-start; gap:1px; }
+  .brand .tag{ border-left:none; padding-left:0; font-size:9px; }
+}
 .topbar-right{
   position:relative; z-index:1; display:flex; gap:10px; align-items:center;
   padding: 6px;
