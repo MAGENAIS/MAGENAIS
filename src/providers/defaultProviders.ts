@@ -132,9 +132,88 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     isPreset: true,
     isBuiltIn: true,
     visionOnly: true, // captioning-only pipeline — cannot answer a genuine text-generation request; see types.ts
-    notes: 'Requirement default for VISION: local, in-browser image captioning via Transformers.js/ONNX Runtime Web, works with zero keys and no camera data ever leaving the device. It captions the image but (unlike a full multimodal chat model) cannot answer arbitrary open-ended questions about it, the adapter notes this plainly in its output and suggests enabling a multimodal provider (Anthropic/Gemini) for that. Priority 40 keeps it below Puters free-but-usage-risky vision path (also zero-key) and below any multimodal provider you have keyed, but well above every disabled-by-default keyed vision option, guaranteeing Vision always produces some real result out of the box. ROOT CAUSE FIX: raised from 20000ms — real-world reports showed the first-time model download consistently missed that window and timed out on every request, same issue as WebLLM above; 60000ms gives the one-time download a realistic chance to finish before it\'s cached for the rest of the session.',
-    timeoutMs: 60000,
+    notes: 'Requirement default for VISION: local, in-browser image captioning + OCR via Transformers.js/ONNX Runtime Web, works with zero keys and no camera data ever leaving the device — genuinely free and unlimited since nothing leaves the browser. It describes the image and reads any text in it, but (unlike a full multimodal chat model) cannot answer arbitrary open-ended questions, the adapter notes this plainly in its output and suggests enabling a multimodal provider (Anthropic/Gemini) for that. Priority 40 is the primary Vision default — tried before the cloud fallback below — and above every disabled-by-default keyed vision option, guaranteeing Vision always produces a real, free result out of the box. ROOT CAUSE FIX: raised to 90000ms — this now runs captioning AND OCR sequentially (see TransformersAdapter.caption), each a separate one-time model download on first use, so the combined budget needs more headroom than a single pipeline did.',
+    timeoutMs: 90000,
     retries: 0,
+  },
+  {
+    // Cloud fallback for Vision, tried only after the local/free default
+    // above. PuterAdapter already implements genuine multimodal vision Q&A
+    // (puter.ai.chat(prompt, imageDataUrl) — see PuterAdapter.vision()),
+    // zero signup, and can actually answer open-ended questions the local
+    // captioning model above can't ("what color is the car", "read this
+    // sign and translate it"). It's deliberately NOT the primary default —
+    // unlike the fully local pipeline above, Puter's hosted usage isn't
+    // guaranteed unlimited and can occasionally hit their own paid-usage
+    // paywall — so it sits at a lower priority, used to upgrade the answer
+    // when reachable rather than being depended on.
+    id: 'builtin-puter-vision',
+    name: 'Puter.js Vision — GPT (cloud fallback, no key)',
+    type: 'text',
+    adapterId: 'puter',
+    baseUrl: 'puter.ai.chat',
+    authType: 'none',
+    defaultModel: 'openai/gpt-5.4-nano',
+    priority: 45,
+    enabled: true,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    visionOnly: true,
+    // ROOT CAUSE (user asked for two more free/no-key/unlimited cloud
+    // vision providers besides this one): genuinely free *and* keyless
+    // *and* unlimited is a narrow combination — most "free" vision APIs
+    // still require signing up for a key (Groq, Gemini, OpenRouter,
+    // Cloudflare, current-day Pollinations — see that preset's own notes)
+    // even on their free tier, which fails the "no key" half of the ask.
+    // Puter is close to the reference example of this exact combination
+    // (their own docs literally title pages "Free, Unlimited Image
+    // Recognition API — no API keys, no usage limits"), and it fronts
+    // 400+ underlying models — so rather than three unrelated services
+    // (which don't really exist in this category), this and the two
+    // entries below are three DIFFERENT underlying models (OpenAI/
+    // Anthropic/Google) through that same zero-key gateway: genuine
+    // redundancy against any one model being down, overloaded, or
+    // hitting a rate limit, without needing three separate signups.
+    notes: "Cloud fallback for VISION (1 of 3), tried after the local captioning+OCR default: real multimodal image Q&A via Puter.js's hosted GPT model, zero signup. Not the primary default because Puter's hosted usage can occasionally hit their own paid-usage paywall modal — if that happens, add a real vision-capable key (Anthropic/Gemini/OpenAI) in Keys & Providers instead.",
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
+    id: 'builtin-puter-vision-claude',
+    name: 'Puter.js Vision — Claude (cloud fallback, no key)',
+    type: 'text',
+    adapterId: 'puter',
+    baseUrl: 'puter.ai.chat',
+    authType: 'none',
+    defaultModel: 'anthropic/claude-sonnet-5',
+    priority: 46,
+    enabled: true,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    visionOnly: true,
+    notes: "Cloud fallback for VISION (2 of 3) — same zero-key Puter.js gateway as the GPT entry above, routed to Claude instead, so a GPT-specific outage/rate-limit doesn't take out the whole cloud fallback path. If Puter ever renames/retires this exact model id, this entry simply fails over to the next candidate below rather than breaking Vision.",
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
+    id: 'builtin-puter-vision-gemini',
+    name: 'Puter.js Vision — Gemini (cloud fallback, no key)',
+    type: 'text',
+    adapterId: 'puter',
+    baseUrl: 'puter.ai.chat',
+    authType: 'none',
+    defaultModel: 'google/gemini-2.5-flash',
+    priority: 47,
+    enabled: true,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    visionOnly: true,
+    notes: "Cloud fallback for VISION (3 of 3) — same zero-key Puter.js gateway, routed to Gemini. Same graceful-failover note as the Claude entry above applies here too.",
+    timeoutMs: 30000,
+    retries: 1,
   },
   {
     id: 'builtin-transformers-audio',
@@ -496,13 +575,23 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     authType: 'bearer',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    defaultModel: 'openrouter/free',
     priority: 12,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'OpenAI-compatible. One key, many models — use a ":free" suffixed model id to stay on OpenRouter\'s no-cost tier. Browse free models at openrouter.ai/models?max_price=0.',
+    // ROOT CAUSE FIX (user-reported HTTP 404 "This model is unavailable for
+    // free. The paid version is available now - use this slug instead:
+    // meta-llama/llama-3.3-70b-instruct"): OpenRouter's free-model roster
+    // rotates — a hardcoded ":free" id can get pulled or upstream-throttled
+    // at any time (OpenRouter's own docs warn about this). openrouter/free
+    // is OpenRouter's own "Free Models Router": it auto-selects a
+    // currently-available free model per request, filtered to whatever
+    // capabilities the request needs, so this default keeps working even
+    // after any individual free model rotates out. See
+    // openrouter.ai/docs/cookbook/get-started/free-models-router-playground.
+    notes: 'OpenAI-compatible. Defaults to openrouter/free (OpenRouter\'s own Free Models Router, which auto-picks whichever free model is currently available) so this preset keeps working as the free-model roster rotates. Pin a specific ":free" model id instead if you want repeatable behavior — browse them at openrouter.ai/models?max_price=0.',
     timeoutMs: 30000,
     retries: 1,
   },
@@ -600,7 +689,17 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Replace YOUR_ACCOUNT_ID in the base URL with your Cloudflare account ID. Free tier with a Cloudflare account + API token.',
+    // ROOT CAUSE FIX (user-reported "Failed to fetch" on every Cloudflare
+    // preset): api.cloudflare.com sends no Access-Control-Allow-Origin
+    // header on any /client/v4/* endpoint (confirmed via Cloudflare's own
+    // community forum — this is a known, longstanding gap, not
+    // account-specific), so a direct browser call is blocked by CORS
+    // before it ever reaches the network — the browser reports the same
+    // generic, contextless "Failed to fetch" for that as for a real outage.
+    // Same fix as fal.ai/Replicate/Moonshot above: route through the local
+    // CORS proxy instead. See BaseAdapter.fetchWithRetry / server/proxyHandler.mjs.
+    requiresServerProxy: true,
+    notes: 'Replace YOUR_ACCOUNT_ID in the base URL with your Cloudflare account ID. Free tier with a Cloudflare account + API token. Requires the local CORS proxy (requiresServerProxy) — see preset-fal-ai above for why.',
     timeoutMs: 30000,
     retries: 1,
   },
@@ -807,7 +906,12 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: "Replace YOUR_ACCOUNT_ID with your Cloudflare account ID. Cloudflare Workers AI's request/response shape differs slightly from plain OpenAI images — if the generic adapter can't parse the response, add a small custom adapter or use the backend proxy.",
+    // ROOT CAUSE FIX — see preset-cloudflare-text above: api.cloudflare.com
+    // sends no CORS headers on any /client/v4/* endpoint, so this failed
+    // client-side with a generic "Failed to fetch" before ever reaching
+    // the network.
+    requiresServerProxy: true,
+    notes: "Replace YOUR_ACCOUNT_ID with your Cloudflare account ID. Cloudflare Workers AI's request/response shape differs slightly from plain OpenAI images — if the generic adapter can't parse the response, add a small custom adapter or use the backend proxy. Requires the local CORS proxy (requiresServerProxy).",
     timeoutMs: 30000,
     retries: 1,
   },
@@ -947,7 +1051,10 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: "Replace YOUR_ACCOUNT_ID with your Cloudflare account ID. Availability/model ids on Workers AI change over time — check developers.cloudflare.com/workers-ai/models for the current video model id.",
+    // ROOT CAUSE FIX — see preset-cloudflare-text above: api.cloudflare.com
+    // sends no CORS headers on any /client/v4/* endpoint.
+    requiresServerProxy: true,
+    notes: "Replace YOUR_ACCOUNT_ID with your Cloudflare account ID. Availability/model ids on Workers AI change over time — check developers.cloudflare.com/workers-ai/models for the current video model id. Requires the local CORS proxy (requiresServerProxy).",
     timeoutMs: 30000,
     retries: 1,
   },
@@ -1070,7 +1177,13 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Replace YOUR_ACCOUNT_ID with your Cloudflare account ID.',
+    // ROOT CAUSE FIX (this is the exact provider reported failing with
+    // "Failed to fetch") — see preset-cloudflare-text above:
+    // api.cloudflare.com sends no CORS headers on any /client/v4/*
+    // endpoint, so this was blocked client-side before it ever reached
+    // the network.
+    requiresServerProxy: true,
+    notes: 'Replace YOUR_ACCOUNT_ID with your Cloudflare account ID. Requires the local CORS proxy (requiresServerProxy).',
     timeoutMs: 30000,
     retries: 1,
   },
@@ -1267,13 +1380,13 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     authType: 'bearer',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    defaultModel: 'openrouter/free', // ROOT CAUSE FIX — see preset-openrouter-free above: this was 'meta-llama/llama-3.3-70b-instruct:free', the exact id OpenRouter's API is now rejecting with "This model is unavailable for free". openrouter/free auto-routes to whatever free model is currently live.
     priority: 20,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
     isPreset: true,
     isBuiltIn: false,
-    notes: 'Placeholder entry for agentic/tool-use workflows built on top of OpenRouter\'s free models.',
+    notes: 'Placeholder entry for agentic/tool-use workflows built on top of OpenRouter\'s free models (openrouter/free auto-selects whichever is currently live).',
     timeoutMs: 30000,
     retries: 1,
   },

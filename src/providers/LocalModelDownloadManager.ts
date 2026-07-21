@@ -293,6 +293,28 @@ async function runQueue(log?: (msg: string, level?: 'info' | 'warn' | 'error') =
 }
 
 /**
+ * Called when a generation call (never an authorized download — see
+ * getPipeline's byte-threshold safety net in TransformersAdapter.ts)
+ * discovers it's actually downloading real bytes despite the manifest
+ * saying 'ready'. The most common real cause: the browser's Cache Storage
+ * silently evicted the model's files under storage pressure sometime
+ * after installation (see this module's storage-persistence doc comment)
+ * — the manifest's 'ready' flag had no way to know that happened on its
+ * own, since nothing re-verifies it before trusting it. Marking 'error'
+ * (not silently flipping back to 'not-installed', which would hide that
+ * this was previously working) surfaces the real situation in the Local
+ * Models Manager UI and offers Download to reinstall the missing files.
+ */
+export function markCacheEvicted(modelId: string, task: LocalModelTask, role?: 'caption' | 'ocr'): void {
+  const e = manifest[key(modelId, task, role)];
+  if (e) {
+    e.status = 'error';
+    e.lastError = "This model's cached files appear to have been cleared by the browser (common under low disk space) — it needs to be downloaded again.";
+    notify();
+  }
+}
+
+/**
  * Explicitly start (or continue queueing) a download. This is the ONLY
  * function that should ever be called from a "Download" button — never
  * from a generation path. Resolves when the download finishes; rejects on

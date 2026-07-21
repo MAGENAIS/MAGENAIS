@@ -642,7 +642,17 @@ export abstract class Mode {
         out.push(`<li>${(ulMatch || olMatch)![1]}</li>`);
       } else {
         closeList();
-        paraBuf.push(line);
+        // A line shaped like a table row ('| a | b |') that didn't qualify
+        // as a real table above — most commonly because generation was cut
+        // short before the row after it (or the separator) arrived — would
+        // otherwise show up as literal '|' characters with no formatting.
+        // Strip the pipes and space the cells out instead, so a cut-off
+        // response still reads cleanly rather than looking broken.
+        if (isTableRow(line)) {
+          paraBuf.push(splitTableRow(line).join('&nbsp;&nbsp;&nbsp;'));
+        } else {
+          paraBuf.push(line);
+        }
       }
       i++;
     }

@@ -99,7 +99,18 @@ export abstract class BaseNodeExecutor implements NodeExecutor {
       // to that provider's adapterId instead of leaving this default.
       modelAdapterHint: node.config?.modelAdapterHint ?? 'pollinations',
       temperature: node.config?.temperature,
-      maxTokens: node.config?.maxTokens,
+      // ROOT CAUSE of "output gets cut off mid-sentence/mid-table with no
+      // way to scroll to the rest": this was `node.config?.maxTokens` with
+      // no fallback. No mode UI (TextMode included) ever sets maxTokens on
+      // node.config, so this was always `undefined`, and every adapter's
+      // own `options?.maxTokens ?? 1024` (or as low as 150 for local
+      // summarization) silently took over. A modest multi-table comparison
+      // answer blows past 1024 tokens easily, so the model gets cut off
+      // mid-word — that's not a rendering/CSS bug, there's genuinely
+      // nothing further generated to scroll to. 4096 gives real headroom;
+      // an explicit node.config.maxTokens (once a mode exposes that
+      // control) still always wins over this default.
+      maxTokens: node.config?.maxTokens ?? 4096,
       width: node.config?.width,
       height: node.config?.height,
       duration: node.config?.duration,
@@ -418,7 +429,9 @@ export class VisionNodeExecutor extends BaseNodeExecutor {
       throw new Error('Provider services are not available in this execution context.');
     }
     const { providerManager, router } = context.services;
-    return providerManager.callVision(imageBase64, prompt, router, context.log);
+    return providerManager.callVision(imageBase64, prompt, router, context.log, {
+      includeOcr: node.config?.includeOcr,
+    });
   }
 }
 

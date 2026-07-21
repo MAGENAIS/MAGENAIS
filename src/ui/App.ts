@@ -280,9 +280,9 @@ export class App {
       { id: 'doc', label: 'Documents', num: 6 },
       { id: 'research', label: 'Research', num: 7 },
       { id: 'game', label: 'Game', num: 8 },
-      { id: 'agents', label: 'Agents', num: 9 },
-      { id: 'coding', label: 'Coding', num: 10 },
-      { id: 'vision', label: 'Vision', num: 11 },
+      { id: 'coding', label: 'Coding', num: 9 },
+      { id: 'vision', label: 'Vision', num: 10 },
+      { id: 'agents', label: 'Agents', num: 11 },
     ];
     this.navContainer.innerHTML = '';
     modes.forEach(m => {

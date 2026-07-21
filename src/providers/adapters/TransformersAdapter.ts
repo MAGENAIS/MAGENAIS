@@ -2,7 +2,7 @@ import { BaseAdapter } from './BaseAdapter';
 import { ProviderConfig } from '../types';
 import { Logger } from '../../core/Logger';
 import { getSelectedModelId, LocalModelTask } from '../LocalModelRegistry';
-import { isInstalled, markUsed, registerWarmModelImpl } from '../LocalModelDownloadManager';
+import { isInstalled, markUsed, registerWarmModelImpl, markCacheEvicted } from '../LocalModelDownloadManager';
 
 /**
  * Thrown by getPipeline() when a generation call needs a model that hasn't
@@ -15,8 +15,8 @@ import { isInstalled, markUsed, registerWarmModelImpl } from '../LocalModelDownl
  */
 export class ModelNotInstalledError extends Error {
   code = 'LOCAL_MODEL_NOT_INSTALLED' as const;
-  constructor(public modelId: string, public task: LocalModelTask) {
-    super(`"${modelId.split('/').pop()}" hasn't been downloaded yet. Open Local Models in the Universal Provider Manager to download it, then try again.`);
+  constructor(public modelId: string, public task: LocalModelTask, customMessage?: string) {
+    super(customMessage || `"${modelId.split('/').pop()}" hasn't been downloaded yet. Open Local Models in the Universal Provider Manager to download it, then try again.`);
     this.name = 'ModelNotInstalledError';
   }
 }
@@ -314,6 +314,33 @@ async function getPipeline(
               tracker.lastTs = now;
             }
 
+            // ROOT CAUSE FIX: isInstalled() is a trusted flag in
+            // localStorage that's never re-verified against what the
+            // browser's Cache Storage actually still holds — if the
+            // browser silently evicted a large cached file under storage
+            // pressure sometime after a genuinely successful install (a
+            // real, documented, common browser behavior — see this
+            // module's storage-persistence doc comment), isInstalled()
+            // still confidently says "ready" even though this exact call
+            // is now, unexpectedly, downloading real bytes again. Without
+            // this check, a generation call could silently turn into the
+            // same multi-hundred-MB, multi-minute block this whole gate
+            // exists to prevent — just via a different path (a stale
+            // trusted flag instead of "never downloaded at all"). A small
+            // threshold (not zero) intentionally tolerates tiny legitimate
+            // fetches (a KB-sized tokenizer/config file re-validating) —
+            // 8MB is far below any real model weight file but comfortably
+            // above every non-weight file this app's models use.
+            const cumulativeBytesThisCall = Array.from(fileTrackers.values()).reduce((sum, t) => sum + t.lastLoaded, 0);
+            if (!allowDownload && cumulativeBytesThisCall > 8 * 1024 * 1024) {
+              markCacheEvicted(model, task as LocalModelTask);
+              throw new ModelNotInstalledError(
+                model,
+                task as LocalModelTask,
+                `"${model.split('/').pop()}" was marked installed, but the browser appears to have cleared its cached files (common under low disk space) — it needs to be downloaded again. Open Local Models in the Universal Provider Manager to re-download it.`
+              );
+            }
+
             if (!isDone && now - (lastEmitAt.get(file) || 0) < 250) return; // throttle mid-download ticks
             lastEmitAt.set(file, now);
 
@@ -582,7 +609,20 @@ export class TransformersAdapter extends BaseAdapter {
     return result.trim();
   }
 
-  /** Image captioning — used as Vision's zero-key fallback description. */
+  /**
+   * Image captioning — used as Vision's zero-key fallback description.
+   * ROOT CAUSE ("best truly free/unlimited default vision provider"): a
+   * caption alone ("a street sign on a pole") silently drops anything
+   * printed in the image, which is often exactly what a person is asking
+   * about ("what does the sign say"). TrOCR (this.ocr, below) is already
+   * implemented, already fully local/free/unlimited — same guarantees as
+   * captioning, zero added cost or dependency — it just wasn't being run
+   * unless the caller explicitly asked for the 'ocr' task. Running both by
+   * default and merging whatever OCR finds gives a meaningfully better
+   * out-of-the-box answer at no cost. Best-effort: if OCR finds nothing (a
+   * photo with no text) or errors, the caption still returns normally —
+   * this is purely additive, never a new failure mode.
+   */
   private async caption(provider: ProviderConfig, input: any, options?: any): Promise<string> {
     const imageBase64: string | undefined = input?.imageBase64;
     if (!imageBase64) throw new Error('Transformers.js vision call is missing image data.');
@@ -592,14 +632,31 @@ export class TransformersAdapter extends BaseAdapter {
     const result = await captioner(dataUrl);
     const text = Array.isArray(result) ? result[0]?.generated_text : result?.generated_text;
     if (!text) throw new Error('Transformers.js produced no caption for this image.');
+    let combined = text;
+    // User-controllable (see VisionMode.ts's "Also read text in the image
+    // (OCR)" checkbox, wired through callVision's extraOptions) — defaults
+    // to on since it's strictly additive when it works, but this is a
+    // real per-call setting the user can turn off, not a fixed behavior.
+    if (options?.includeOcr !== false) {
+      try {
+        options?.log?.('Transformers.js: also running local OCR in case the image contains text…', 'info');
+        const ocrText = await this.ocr(provider, input, options);
+        if (ocrText && ocrText.trim()) {
+          combined = `${text}\n\nText detected in the image: "${ocrText.trim()}"`;
+        }
+      } catch {
+        // No readable text found (or OCR model unavailable) — not an error,
+        // just nothing to add. The caption above is still a complete result.
+      }
+    }
     // Locally-run image captioning models describe the scene but don't
     // follow an arbitrary user question the way a full multimodal chat
     // model does — surface the user's prompt alongside the caption so the
     // limitation is transparent rather than silently ignoring their ask.
     const userPrompt = input?.prompt as string | undefined;
     return userPrompt
-      ? `${text}\n\n(Note: this ran on a local, caption-only model, so it can't directly answer "${userPrompt}" — for open-ended visual Q&A, enable a multimodal provider like Anthropic or Gemini in Keys & Providers.)`
-      : text;
+      ? `${combined}\n\n(Note: this ran on a local, caption-only model, so it can't directly answer "${userPrompt}" — for open-ended visual Q&A, enable a multimodal provider like Anthropic or Gemini in Keys & Providers.)`
+      : combined;
   }
 
   /**

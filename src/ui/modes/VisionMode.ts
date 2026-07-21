@@ -37,6 +37,12 @@ export class VisionMode extends Mode {
           <span class="field-label" style="margin:0;">Live mode <span style="text-transform:none;color:var(--ink-faint);">analyze every 8 seconds</span></span>
         </label>
       </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+          <input type="checkbox" id="visionOcrToggle" style="width:auto;" checked>
+          <span class="field-label" style="margin:0;">Also read text in the image <span style="text-transform:none;color:var(--ink-faint);">local OCR, on by default — only applies to the local captioning fallback, not the cloud providers</span></span>
+        </label>
+      </div>
       <p class="hint">Works out of the box via a local, in-browser captioning model (Transformers.js) — no key needed. Enable Anthropic, Gemini, or Ollama with a vision model (e.g. "llava") in Keys &amp; Providers for full open-ended visual Q&amp;A. Frames are analyzed on demand, not streamed anywhere.</p>
       <button class="run-btn" id="runBtn">▸ Analyze Frame</button>
     `);
@@ -127,6 +133,7 @@ export class VisionMode extends Mode {
     this.analyzing = true;
     const prompt = (document.getElementById('promptInput') as HTMLTextAreaElement)?.value.trim();
     const speak = (document.getElementById('visionSpeakToggle') as HTMLInputElement)?.checked;
+    const includeOcr = (document.getElementById('visionOcrToggle') as HTMLInputElement)?.checked ?? true;
     const stage = this.outputPanel.querySelector('.stage') as HTMLElement;
     if (stage) this.renderLoading('Analyzing image…');
 
@@ -138,7 +145,7 @@ export class VisionMode extends Mode {
           id: 'vision1',
           type: 'vision' as const,
           label: 'Vision Analyzer',
-          config: {},
+          config: { includeOcr },
           inputs: { imageBase64, prompt: prompt || undefined },
           enabled: true,
         }],

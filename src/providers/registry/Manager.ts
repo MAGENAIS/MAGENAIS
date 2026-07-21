@@ -259,9 +259,42 @@ export class ProviderManager {
       if (existing) {
         // Merge: stored values take precedence, but we keep the id and type from default if missing
         mergedMap.set(p.id, { ...existing, ...p });
+      } else if (trueDefault) {
+        // Still a valid current default (normal "already seeded before,
+        // second boot" case — see the comment on `trueDefault` above for
+        // why it's deliberately absent from `mergedMap` here). Not
+        // orphaned: trust the stored copy, same as the plain custom-
+        // provider case below.
+        mergedMap.set(p.id, p);
+      } else if (p.isPreset || p.isBuiltIn) {
+        // ROOT CAUSE FIX (user report: "WebLLM"/"Transformers.js Vision"
+        // showing wrong priorities and failing every test with a nonsense
+        // CORS-proxy SSRF error despite their current adapters making zero
+        // network calls at all; "LLAMA" and a second "Mistral AI" entry
+        // that don't exist ANYWHERE in the current defaultProviders list).
+        // Reaching this branch means: no default exists under this id
+        // AT ALL anymore (trueDefault is undefined, checked above) — but
+        // `isPreset`/`isBuiltIn` being true means this row was SEEDED as a
+        // shipped default by an earlier app version, one whose id (or
+        // whole entry) has since been renamed, consolidated, or removed —
+        // see this file's own `'preset-mistral'` duplicate-key bugfix
+        // history for exactly how that happens. A real user-added custom
+        // provider is never isPreset/isBuiltIn, so this can't misfire on
+        // one, and a still-valid default (the overwhelmingly common case)
+        // is caught by the `trueDefault` branch above, never reaching
+        // here. Carrying an orphaned ex-default forward unchanged forever
+        // (the old behavior) means it keeps getting tested with whatever
+        // adapterId/baseUrl/requiresServerProxy it had YEARS ago — which is
+        // exactly how a WebLLM-labeled row ends up making an HTTP proxy
+        // call. Dropping it here is safe: if it's still a real capability,
+        // the CURRENT default under its CURRENT id gets seeded normally by
+        // the "add any never-seeded default" step above; if it was
+        // genuinely retired, the app is simply, correctly, no longer
+        // carrying dead weight.
+        Logger.info(`ProviderManager: dropped "${p.name}" (id "${p.id}") — it was seeded as a built-in/preset by an older app version but no longer matches any current default, so it's stale rather than a real user customization.`);
       } else {
-        // Custom provider (not in defaults), or a previously-deleted default
-        // the user re-added by hand — either way, trust the stored copy.
+        // Genuine custom provider (not in defaults, not ever a preset/
+        // built-in) — trust the stored copy, this really is the user's own.
         mergedMap.set(p.id, p);
       }
     });
@@ -713,7 +746,14 @@ export class ProviderManager {
     imageBase64: string,
     prompt: string,
     router: SmartRouter,
-    log?: (message: string, level?: 'info' | 'warn' | 'error') => void
+    log?: (message: string, level?: 'info' | 'warn' | 'error') => void,
+    // User-controllable per-call flags (see VisionMode.ts's "Also read text
+    // in the image (OCR)" checkbox) — kept as a small passthrough bag
+    // rather than new callVision params for each future flag, and merged
+    // into the options every adapter receives so nothing here is decided
+    // for the user with no way to turn it off (see
+    // TransformersAdapter.caption's use of includeOcr).
+    extraOptions?: { includeOcr?: boolean }
   ): Promise<string> {
     // Anthropic and Gemini's own adapters always speak their native
     // multimodal format. 'puter' is included because Puter.js genuinely
@@ -829,7 +869,7 @@ export class ProviderManager {
       runnable,
       'vision' as ProviderType,
       { prompt, imageBase64 },
-      { mode: 'vision', log },
+      { mode: 'vision', log, ...extraOptions },
       attempts,
       log,
       Logger.newRequestId()

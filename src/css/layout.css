@@ -138,7 +138,19 @@ main {
   flex:1;
   display:grid;
   grid-template-columns: 380px 1fr;
+  /* Explicit single row = 100% of main's own (flex-derived) height, instead
+     of relying on the *implicit* default row + default align-content:stretch
+     to hand section.control/.output a definite height to scroll within.
+     That default is spec-correct and was already producing the right
+     result in review, but leaving it implicit meant a single misbehaving
+     rule anywhere in this cascade (or a browser quirk) could silently make
+     the row content-sized instead — and a content-sized row means the
+     panels grow to fit their content instead of scrolling, which reads
+     exactly as "no scrollbar ever shows up". Spelling it out removes that
+     class of bug outright rather than depending on it never regressing. */
+  grid-template-rows: 100%;
   min-height:0;
+  height: 100%;
 }
 @media (max-width: 880px){
   main{ grid-template-columns: 1fr; }
@@ -152,6 +164,7 @@ section.control {
   overflow-y:auto;
   overflow-x:hidden;
   min-height: 0;
+  height: 100%; /* belt-and-suspenders alongside main's explicit row above — see that comment */
   /* ROOT CAUSE of "content panels show truncated/cut text or images": a
      grid/flex item's default min-width is `auto` (shrink-to-fit its content's
      min-content size), not 0 — so a single unbreakable run in generated
@@ -176,11 +189,9 @@ section.output {
   flex-direction:column;
   gap:16px;
   overflow-y:auto;
-  overflow-x:hidden;
+  overflow-x:auto;
   min-height: 0;
-  /* See section.control comment above — same fix, same reason. This is the
-     panel most affected in practice since it's where generated text/images
-     land. */
+  height: 100%; /* belt-and-suspenders alongside main's explicit row above */
   min-width: 0;
 }
 .output-header {
@@ -341,6 +352,11 @@ section.output {
   padding: 10px 12px 12px;
   max-height: 320px;
   overflow-y: auto;
+  /* Own horizontal scrollbar for genuinely long single-line entries (a
+     full URL, a stack trace, a long provider error) instead of relying on
+     section.output's — nested overflow:auto containers each need their
+     own axis handling or the inner one just clips at its own edge. */
+  overflow-x: auto;
 }
 
 /* Footer */
@@ -497,8 +513,20 @@ details.adv .adv-body{ padding: 4px 12px 14px; display:flex; flex-direction:colu
   color: var(--ink-faint);
   display:flex;
   gap:8px;
+  /* A flex item's default min-width is auto (shrink-to-fit its content),
+     same blowout mechanism as section.control/.output elsewhere in this
+     file — without this, a single long word in .msg (URL, stack frame,
+     provider error) pushes the whole row past the panel edge instead of
+     wrapping, and with the old overflow-x:hidden that was invisible data
+     loss rather than a scrollbar. */
+  min-width: 0;
 }
 .log-line .t{ color: var(--ink-faint); opacity:0.6; min-width:64px; flex-shrink:0; }
+.log-line .msg{
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .log-line.warn .t{ color: var(--amber); }
 .log-line.error .msg{ color: var(--rust); }
 .log-line.ok .msg{ color: var(--moss); }

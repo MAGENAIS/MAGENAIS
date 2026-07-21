@@ -60,7 +60,16 @@ export class PuterAdapter extends BaseAdapter {
       throw new Error('Puter.js failed to load from CDN');
     }
     const prompt = input?.prompt ?? input;
-    const model = options?.puterModel || 'openai/gpt-5.4-nano';
+    // ROOT CAUSE FIX: Manager.ts populates `options.model` from
+    // provider.defaultModel for every adapter call (see registry/Manager.ts,
+    // `modelForThisProvider`) — this was reading `options.puterModel`
+    // instead, a field nothing in the app ever sets. That meant a
+    // provider's "Preferred model" (or a distinct defaultModel on a
+    // second/third Puter-backed preset) silently had no effect at all;
+    // every call used the hardcoded fallback regardless. `options.model`
+    // now takes precedence, with `puterModel` kept as a legacy fallback in
+    // case anything external still sets it directly.
+    const model = options?.model || options?.puterModel || 'openai/gpt-5.4-nano';
     const response = await window.puter.ai.chat(prompt, { model, temperature: options?.temperature ?? 0.8 });
 
     let text: string | undefined;
@@ -94,7 +103,8 @@ export class PuterAdapter extends BaseAdapter {
     const imageBase64: string | undefined = input?.imageBase64;
     if (!imageBase64) throw new Error('Puter.js vision call is missing image data.');
     const dataUrl = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
-    const model = options?.puterModel || 'openai/gpt-5.4-nano';
+    // Same fix as text() above — see that comment.
+    const model = options?.model || options?.puterModel || 'openai/gpt-5.4-nano';
     const response = await window.puter.ai.chat(prompt, dataUrl, { model });
 
     let text: string | undefined;

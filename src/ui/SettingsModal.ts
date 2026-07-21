@@ -925,6 +925,10 @@ export class SettingsModal {
           <input type="checkbox" id="pe-visionOnly" style="width:auto;" ${provider.visionOnly ? 'checked' : ''}>
           <span class="field-label" style="margin:0;">Vision-only <span class="opt">image captioning/analysis, not general text</span></span>
         </label>
+        <label style="display:flex; align-items:center; gap:6px; margin:10px 0; cursor:pointer;" title="Route this provider's requests through the app's own local CORS proxy instead of calling it directly from the browser. Needed for APIs that don't send CORS headers for browser calls (e.g. api.cloudflare.com, fal.run, replicate.com) — without it those fail with a generic, contextless 'Failed to fetch' before the request ever leaves the browser. Turn off if you've set up your own proxy/CORS workaround for this provider.">
+          <input type="checkbox" id="pe-requiresServerProxy" style="width:auto;" ${provider.requiresServerProxy ? 'checked' : ''}>
+          <span class="field-label" style="margin:0;">Route through local CORS proxy <span class="opt">needed for APIs with no browser CORS support</span></span>
+        </label>
         <div class="field">
           <label class="field-label">Notes <span class="opt">optional</span></label>
           <textarea id="pe-notes" rows="2">${escapeHtml(provider.notes || '')}</textarea>
@@ -998,6 +1002,7 @@ export class SettingsModal {
         timeoutMs: parseInt((document.getElementById('pe-timeoutMs') as HTMLInputElement).value, 10) || 30000,
         noKeyNeeded: (document.getElementById('pe-noKeyNeeded') as HTMLInputElement).checked,
         visionOnly: (document.getElementById('pe-visionOnly') as HTMLInputElement).checked || undefined,
+        requiresServerProxy: (document.getElementById('pe-requiresServerProxy') as HTMLInputElement).checked || undefined,
         notes: (document.getElementById('pe-notes') as HTMLTextAreaElement).value.trim() || undefined,
         enabled: isNew ? true : provider.enabled,
       };
