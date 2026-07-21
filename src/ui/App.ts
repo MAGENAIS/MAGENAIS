@@ -159,9 +159,9 @@ export class App {
     return `
       <div class="app-sticky-top">
         <header class="topbar">
-          <img class="topbar-banner" src="/branding/banner.png" alt="" aria-hidden="true">
+          <img class="topbar-banner" src="${import.meta.env.BASE_URL}branding/banner.png" alt="" aria-hidden="true">
           <div class="brand">
-            <img class="brand-logo" src="/branding/logo.png" alt="" aria-hidden="true">
+            <img class="brand-logo" src="${import.meta.env.BASE_URL}branding/logo.png" alt="" aria-hidden="true">
             <div class="brand-text">
               <div class="mark">MAGENAI<span>S</span></div>
               <div class="tag">GENAI OPERATING SYSTEM · Birth of Wisdom</div>
@@ -195,7 +195,7 @@ export class App {
         </section>
       </main>
       <footer class="statusbar">
-        <img class="statusbar-banner" src="/branding/footer-banner.png" alt="" aria-hidden="true">
+        <img class="statusbar-banner" src="${import.meta.env.BASE_URL}branding/footer-banner.png" alt="" aria-hidden="true">
         <span id="footerLeft">Ready</span>
         <span id="connectivityBadge" class="connectivity-badge" hidden>&#9888; Offline — using local providers</span>
         <span id="footerRight">MAGENAIS v2.1</span>
@@ -454,7 +454,7 @@ export class App {
       modal.innerHTML = `
         <div class="modal" style="max-width:640px;">
           <button class="modal-close" id="closeIntro">×</button>
-          <img src="/branding/banner.png" alt="MAGENAIS" style="width:100%; border-radius:var(--radius); margin-bottom:16px; display:block;">
+          <img src="${import.meta.env.BASE_URL}branding/banner.png" alt="MAGENAIS" style="width:100%; border-radius:var(--radius); margin-bottom:16px; display:block;">
           <h3>Introduction</h3>
           <div class="result-text" style="line-height:1.75;">
             <p style="margin-bottom:14px;">Welcome to MAGENAIS — the GENAI Operating System.</p>
