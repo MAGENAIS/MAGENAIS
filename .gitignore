@@ -1,7 +1,47 @@
+
+# Dependencies
 node_modules/
+
+# Build
 dist/
-*.log
-.DS_Store
+build/
 coverage/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets
+secrets/
+credentials/
+keys/
+*.pem
+*.key
+*.p12
+
+# Local settings
+.vscode/settings.json
+.idea/
+
+# Runtime
+cache/
+downloads/
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
 playwright-report/
 test-results/
+
+# AI models
+models/
+onnx/
+gguf/
