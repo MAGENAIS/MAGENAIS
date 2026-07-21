@@ -22,3 +22,11 @@ security model (Zero Trust, Least Privilege, browser-first execution).
 ## Supported Versions
 
 Security fixes are applied to the latest release on the `main` branch.
+
+## API Key Storage
+
+MAGENAIS never ships API keys with the source code.
+
+API keys are stored only in the user's local browser storage and are never transmitted to GitHub.
+
+Users are encouraged to clear stored credentials before sharing browser profiles or exported settings.
