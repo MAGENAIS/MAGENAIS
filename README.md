@@ -83,6 +83,29 @@ MAGENAIS aims to become the universal operating system for the AI era.
 
 ---
 
+# Design Philosophy
+
+MAGENAIS is designed around a simple idea:
+
+> Artificial Intelligence should behave like an Operating System rather than a collection of disconnected websites and APIs.
+
+Instead of forcing users to switch between different providers, interfaces, and workflows, MAGENAIS provides a unified browser-native workspace where models, providers, documents, workflows, plugins, analytics, and intelligent assistants work together seamlessly.
+
+Core design principles include:
+
+- Browser First
+- Provider Independent
+- Modular Architecture
+- Local-First AI
+- Privacy by Design
+- Extensible Plugin System
+- Workflow-Centric Automation
+- Open Standards
+- Community Driven Development
+- Future-Proof Architecture
+
+---
+
 # Mission
 
 MAGENAIS exists to democratize Artificial Intelligence by providing an open, extensible, browser-native platform that anyone can use, modify, extend, and share.
@@ -236,6 +259,47 @@ The platform follows several high-level engineering principles.
 
 ---
 
+# Latest Version Updates
+
+MAGENAIS continues to evolve as a browser-native AI Operating System, bringing together cloud AI services, local AI models, intelligent workflows, document processing, multimedia generation, analytics, and extensible plugins into a single unified platform.
+
+The latest updates focus on improving usability, extensibility, performance, and modularity while preserving the project's provider-independent philosophy.
+
+### Highlights
+
+- Unified Universal Provider Manager for both cloud and local AI providers
+- Improved Browser-Native AI with Local AI runtime support
+- Enhanced Workflow Engine for multi-step AI automation
+- Intelligent Smart Provider Router with provider health awareness
+- Improved Provider Diagnostics and Monitoring
+- Better Local Model management and download workflow
+- Expanded Document Studio capabilities
+- Enhanced Research and Data Analytics modules
+- Modular architecture for future plugins, themes, and AI agents
+- Improved project organization and extensibility
+- Stronger foundation for enterprise-scale and collaborative AI workflows
+
+---
+
+# Smart Provider Router
+
+Selecting the most appropriate AI provider should not require manual trial and error.
+
+MAGENAIS includes an intelligent routing layer capable of selecting providers according to multiple factors, including:
+
+- Availability
+- Response Time
+- Health Status
+- Cost
+- Privacy Requirements
+- Local vs Cloud Preference
+- User Configuration
+- Task Compatibility
+
+Future enhancements will introduce adaptive routing based on historical performance and workload balancing.
+
+---
+
 # What Makes MAGENAIS Different?
 
 MAGENAIS is not merely another chatbot.
@@ -264,6 +328,34 @@ An operating system responsible for coordinating:
 - Intelligent Automation
 
 through one coherent architecture.
+
+---
+
+# AI Operating System Overview
+
+MAGENAIS is organized as a collection of independent yet connected modules.
+
+Current platform components include:
+
+- Universal Provider Manager
+- Smart Provider Router
+- AI Workflow Engine
+- Browser AI Runtime
+- Local AI Runtime
+- Cloud AI Integration
+- Document Studio
+- Research Studio
+- Data Analytics Studio
+- Multimedia Studio
+- Prompt Library
+- Plugin System
+- Theme System
+- Project Manager
+- Asset Manager
+- AI Memory
+- Settings & Diagnostics
+
+Each module is designed to evolve independently while remaining fully integrated with the rest of the platform.
 
 ---
 
@@ -1075,6 +1167,32 @@ Future capabilities include:
 ---
 
 # Supported AI Providers
+
+# Universal Provider Manager
+
+One of MAGENAIS's primary goals is to simplify access to the growing AI ecosystem.
+
+The Universal Provider Manager provides a centralized interface for configuring, monitoring, and managing AI providers regardless of implementation details.
+
+Capabilities include:
+
+- Cloud API Providers
+- Local AI Models
+- Browser AI Engines
+- Provider Diagnostics
+- Provider Health Monitoring
+- Download Management
+- Vision Providers
+- Audio Providers
+- Speech Providers
+- Embedding Providers
+- Realtime Providers
+- Provider Configuration
+- Provider SDK Support
+
+This architecture enables new providers to be integrated with minimal changes to the core application.
+
+---
 
 MAGENAIS is provider-neutral.
 
