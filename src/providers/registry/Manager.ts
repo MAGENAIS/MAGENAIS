@@ -892,21 +892,29 @@ export class ProviderManager {
     // (speech-to-text/TTS only) — those share the adapter class too but
     // have no chat/vision use, so including them would just add dead
     // candidates that always fail.
+    // Adapters that back BOTH a plain general-purpose text provider AND a
+    // dedicated vision-flagged one — for these, only the visionOnly:true
+    // entry should ever be raced for a Vision call; the plain-text sibling
+    // has no business being tried (its configured model is picked for text
+    // quality/cost, not image support, and blindly firing an image at it
+    // either wastes a request on a guaranteed failure — see the Cerebras/
+    // Groq/Mistral-text failures a person reported seeing here — or, worse,
+    // "succeeds" with a nonsense text-only answer, as builtin-ollama-text's
+    // general-purpose default model did before builtin-ollama-vision
+    // existed; see that entry's notes in defaultProviders.ts). 'anthropic',
+    // 'gemini', and 'puter' are deliberately NOT in this list: each backs
+    // only ONE default provider (no separate vision-flagged duplicate),
+    // and that provider's model is natively multimodal by the vendor's own
+    // design, so there's nothing to disambiguate.
     const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'openrouter', 'groq', 'openai', 'together', 'deepinfra', 'transformers', 'ollama'];
+    const DUAL_PURPOSE_VISION_ADAPTERS = ['transformers', 'ollama', 'openai-compatible', 'openrouter', 'groq', 'openai', 'together', 'deepinfra'];
     let candidates = this.filterForConnectivity(
       this.applyRoutingMode(
         this.filterForEnvironment(
           router
             .getSortedProviders('text')
             .filter(p => VISION_CAPABLE_ADAPTERS.includes(p.adapterId) && (p.noKeyNeeded || !!p.apiKey))
-            // 'transformers' now backs two distinct provider entries sharing
-            // this one adapterId — a genuine text-generation one (see
-            // builtin-transformers-text) and an image-captioning one (see
-            // builtin-transformers-vision, visionOnly:true). Only the latter
-            // belongs here; including the text entry would try to run its
-            // chat model through an image-to-text pipeline and guarantee a
-            // failure on every single Vision request.
-            .filter(p => p.adapterId !== 'transformers' || p.visionOnly === true),
+            .filter(p => !DUAL_PURPOSE_VISION_ADAPTERS.includes(p.adapterId) || p.visionOnly === true),
           log
         ),
         log

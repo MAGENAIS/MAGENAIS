@@ -72,6 +72,46 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     retries: 1,
   },
   {
+    id: 'builtin-ollama-vision',
+    name: 'Ollama Vision (Local)',
+    // Same type:'text'+visionOnly:true convention as every other Vision
+    // entry in this file — see the note on builtin-transformers-vision
+    // below for why 'vision' is deliberately not a ProviderType.
+    type: 'text',
+    adapterId: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    authType: 'none',
+    // 'llava' is the single most commonly pulled Ollama vision model and a
+    // safe, well-tested default — but ANY vision-capable Ollama model
+    // works (llama3.2-vision, gemma3, qwen2.5vl, minicpm-v, moondream, …):
+    // just change Preferred model in Keys & Providers to whatever's
+    // already pulled. Deliberately a SEPARATE default model from
+    // builtin-ollama-text's 'llama3.2' — sharing one provider entry (and
+    // therefore one Preferred-model field) between general text chat and
+    // vision would force a person to choose one model for both jobs,
+    // usually a worse fit for at least one of them.
+    defaultModel: 'llava',
+    // Tried right after (not instead of) the plain Ollama text entry, same
+    // spirit as builtin-ollama-text's priority 1 — if Ollama is installed
+    // AND a vision model is pulled, that's genuinely a better, fully
+    // private answer than the small in-browser ViT-GPT2 captioner
+    // (builtin-transformers-vision, priority 40) or any cloud provider, so
+    // it's worth trying first. If no vision model is pulled, Ollama
+    // returns a fast, clear "model not found"-style error (see
+    // OllamaAdapter.chat's 404 handling) and the race simply moves on —
+    // same fail-fast behavior as builtin-ollama-text's own equivalent case.
+    priority: 2,
+    enabled: true,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering'],
+    notes: 'ROOT CAUSE FIX (user-reported: Vision\'s Ollama candidate "succeeded" but answered "I don\'t see an image"): this entry didn\'t exist before — Vision calls were reusing builtin-ollama-text\'s general-purpose model, which OllamaAdapter also wasn\'t even sending the image to (see OllamaAdapter.chat\'s images-array fix). Pull a real vision-capable model with e.g. "ollama pull llava" for this to actually work; until then it fails fast and cleanly, and Vision falls through to the next candidate (local Transformers.js captioning, or any cloud Vision provider you\'ve enabled) rather than returning a confusing wrong answer.',
+    timeoutMs: 120000,
+    retries: 1,
+  },
+  {
     id: 'builtin-webllm-text',
     name: 'WebLLM (Browser, WebGPU)',
     type: 'text',

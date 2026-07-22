@@ -125,12 +125,38 @@ export class OllamaAdapter extends BaseAdapter {
     // pulled it (`ollama pull qwen2.5-coder`); if they haven't, Ollama
     // returns a clear "model not found" error that the fallback chain
     // treats like any other provider failure and moves past.
-    const isCoding = (options?.mode || provider.type) === 'coding';
+    const mode = options?.mode || provider.type;
+    const isCoding = mode === 'coding';
     const model = options?.model || provider.defaultModel || (isCoding ? 'qwen2.5-coder' : 'llama3.2');
+
+    // ROOT CAUSE FIX (user-reported: Vision's local Ollama candidate
+    // "succeeded" but the answer was a generic "I don't see an image" —
+    // see registry/Manager.ts's callVision, which always passes
+    // `input.imageBase64` for a vision call). This method previously
+    // ignored it completely and sent only the text prompt, so ANY chat
+    // model (vision-capable or not) would correctly report seeing nothing
+    // — and because that's a perfectly valid, error-free response, it won
+    // the race and buried every other candidate's real attempt. Ollama's
+    // /api/chat takes images as a per-message `images: [base64, ...]`
+    // array — raw base64, NOT a `data:image/...;base64,` URI — so the
+    // prefix (present because VisionMode's canvas.toDataURL/FileReader
+    // both produce full data URIs) has to be stripped before sending. If
+    // the configured model genuinely has no vision support (e.g. plain
+    // "llama3.2" instead of "llava"), Ollama itself now returns the real
+    // per-model error for that instead of a silently-wrong success — see
+    // the isVisionMode block immediately below for why that distinction
+    // matters for the message body.
+    const isVisionMode = mode === 'vision';
+    const imageBase64: string | undefined = input?.imageBase64 ?? options?.imageBase64;
+    const rawImage = imageBase64?.includes(',') ? imageBase64.slice(imageBase64.indexOf(',') + 1) : imageBase64;
 
     const body = {
       model,
-      messages: [{ role: 'user', content: String(prompt) }],
+      messages: [{
+        role: 'user',
+        content: String(prompt),
+        ...(isVisionMode && rawImage ? { images: [rawImage] } : {}),
+      }],
       stream: false,
       // Ollama unloads a model from memory 5 minutes after its last use by
       // default — keeping it loaded for longer within an active MAGENAIS
