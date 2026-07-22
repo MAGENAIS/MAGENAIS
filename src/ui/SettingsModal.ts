@@ -87,6 +87,25 @@ function isVisionOnly(p: ProviderConfig): boolean {
   return p.visionOnly === true;
 }
 
+/**
+ * User-reported confusion (see screenshot: every built-in cloud vision
+ * preset's row read "text · priority 50 · ... · vision-only", which looks
+ * like a labeling mistake even though it's intentional — see the
+ * "type:'text'+visionOnly:true" convention documented throughout this file
+ * and in types.ts). The underlying ProviderType genuinely is, and must
+ * stay, 'text' — that's what makes these providers reuse the exact same
+ * text-generation call path (see registry/Manager.ts's callVision) instead
+ * of needing a parallel 'vision' provider type/architecture, which the
+ * task brief explicitly says not to introduce. This helper only changes
+ * what's DISPLAYED: a visionOnly provider's row now shows "vision" where
+ * it used to show "text", with no separate "vision-only" suffix badge
+ * needed anymore (see its two call sites below, which both drop that
+ * badge now that it'd be redundant).
+ */
+function displayProviderType(p: ProviderConfig): string {
+  return isVisionOnly(p) ? 'vision' : p.type;
+}
+
 const ADAPTER_OPTIONS = [
   'openai-compatible', 'openai', 'groq', 'together', 'deepinfra', 'openrouter',
   'falai', 'replicate', 'deepgram', 'assemblyai', 'playht', 'huggingface',
@@ -577,7 +596,7 @@ export class SettingsModal {
           ? '<span class="key-status set">key set</span>'
           : '<span class="key-status unset">no key set — add one below to activate</span>';
       const builtInBadge = p.isBuiltIn ? ' · <span style="color:var(--azure);">built-in</span>' : '';
-      const visionBadge = isVisionOnly(p) ? ' · <span style="color:var(--violet, #8a6fd8);">vision-only</span>' : '';
+
       const localBadge = LOCAL_ADAPTER_IDS.has(p.adapterId) ? ' · <span style="color:var(--sage, #4a9d6a);">local</span>' : '';
       // Runtime badge (Browser/Server/Desktop) — purely informational, from
       // computeProviderCapability's metadata-driven environmentBadge, never
@@ -613,7 +632,7 @@ export class SettingsModal {
         <div class="provider-row-top">
           <div style="display:flex; flex-direction:column; gap:2px; overflow:hidden;">
             <span class="provider-name" style="color:${statusColor};">${escapeHtml(p.name)}</span>
-            <span class="provider-meta">${escapeHtml(p.type)} · priority ${p.priority} · ${keyStatus}${builtInBadge}${visionBadge}${localBadge}${environmentBadge}${environmentWarning}${cooldownBadge}</span>
+            <span class="provider-meta">${escapeHtml(displayProviderType(p))} · priority ${p.priority} · ${keyStatus}${builtInBadge}${localBadge}${environmentBadge}${environmentWarning}${cooldownBadge}</span>
             ${testResultLine}
           </div>
           <label style="display:flex; align-items:center; gap:5px; cursor:pointer; flex-shrink:0;" title="${p.noKeyNeeded || p.isBuiltIn || p.apiKey ? 'Enable or disable this provider' : 'Enabled providers activate automatically once you add an API key below'}">
@@ -765,7 +784,7 @@ export class SettingsModal {
             <span style="width:7px; height:7px; border-radius:50%; background:${status.color}; flex-shrink:0;"></span>
             <b style="font-size:12px;">${escapeHtml(p.name)}</b>
             <span class="hint" style="margin:0; color:${status.color};">${status.label}</span>
-            <span class="hint" style="margin:0;">${escapeHtml(p.type)}${cooldown}</span>
+            <span class="hint" style="margin:0;">${escapeHtml(displayProviderType(p))}${cooldown}</span>
           </div>
           <div class="hint" style="margin:0; font-family:var(--mono); font-size:10px;">
             success ${successPct} · avg latency ${latency} · timeouts ${timeouts}${lastError ? ` · last error: ${lastError}` : ''}

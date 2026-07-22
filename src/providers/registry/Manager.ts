@@ -114,11 +114,17 @@ export class ProviderManager {
   async loadProviders(defaultProviders: ProviderConfig[]): Promise<void> {
     let stored: ProviderConfig[] = [];
     let seededDefaultIds: string[] = [];
+    // One-time migration marker (see the loop below, right before the
+    // force-enable loop) — read here alongside the other persisted
+    // bookkeeping fields, same read site, so there's only one place that
+    // knows how to load this shape.
+    let puterVisionDeprioritizedV1 = false;
     try {
       const data = await this.persistence.load();
       if (data && Array.isArray(data.providers)) {
         stored = data.providers;
         seededDefaultIds = Array.isArray(data.seededDefaultIds) ? data.seededDefaultIds : [];
+        puterVisionDeprioritizedV1 = data.puterVisionDeprioritizedV1 === true;
       } else if (this.legacyPersistence) {
         // Nothing under the new dedicated key yet — check the old shared
         // key for provider data saved by a previous version of the app
@@ -127,6 +133,7 @@ export class ProviderManager {
         if (legacyData && Array.isArray(legacyData.providers) && legacyData.providers.length > 0) {
           stored = legacyData.providers;
           seededDefaultIds = Array.isArray(legacyData.seededDefaultIds) ? legacyData.seededDefaultIds : [];
+          puterVisionDeprioritizedV1 = legacyData.puterVisionDeprioritizedV1 === true;
           Logger.info(`ProviderManager: migrated ${stored.length} provider(s) from legacy storage key.`);
         }
       }
@@ -301,6 +308,39 @@ export class ProviderManager {
       }
     });
 
+    // One-time migration (user-reported: Puter's three Vision entries were
+    // still showing enabled+checked, at priority 45-47, even after
+    // defaultProviders.ts changed their `enabled` default to false and
+    // lowered their intended priority to 90-92). ROOT CAUSE: this app's own
+    // "stored always wins" rule (documented throughout this file, and
+    // exactly right in general — see e.g. the migration comments above)
+    // means a browser that had already persisted these three rows from an
+    // EARLIER app version — one where Puter Vision genuinely was
+    // enabled-by-default and priority 45-47 — keeps that stored `enabled`/
+    // `priority` forever; editing defaultProviders.ts only changes what a
+    // *fresh* install seeds, it can't reach back into existing localStorage.
+    // Unlike the `visionOnly`-flag migration above, `enabled` DOES have a
+    // real settings-UI toggle, so this can't just unconditionally resync
+    // from the default every load — that would silently fight a person who
+    // deliberately re-enables Puter Vision for themselves later. Instead
+    // this runs exactly once per browser (gated on
+    // `puterVisionDeprioritizedV1`, persisted right after this loop) and is
+    // narrowly scoped to the three known Puter-vision ids specifically, so
+    // it corrects the stale seed without ever touching a choice made after
+    // this fix ships.
+    if (!puterVisionDeprioritizedV1) {
+      const PUTER_VISION_IDS = new Set(['builtin-puter-vision', 'builtin-puter-vision-claude', 'builtin-puter-vision-gemini']);
+      for (const p of mergedMap.values()) {
+        if (PUTER_VISION_IDS.has(p.id) && (p.enabled === true || (p.priority ?? 0) < 90)) {
+          const trueDefault = defaultsById.get(p.id);
+          p.enabled = false;
+          p.priority = trueDefault?.priority ?? 90;
+          Logger.info(`ProviderManager: one-time migration — moved "${p.name}" back to disabled + lowest priority (was left enabled/high-priority from an earlier app version). Re-enable any time in Keys & Providers if you want it back.`);
+        }
+      }
+    }
+    this.puterVisionDeprioritizedV1 = true;
+
     // Clear registry and load merged
     // Force-enable genuinely free, zero-setup built-ins (noKeyNeeded AND
     // isBuiltIn) — but ONLY when the user's browser has never seen this
@@ -343,6 +383,7 @@ export class ProviderManager {
   }
 
   private seededDefaultIds: string[] = [];
+  private puterVisionDeprioritizedV1: boolean = false;
 
   /**
    * Save current provider configurations to persistence.
@@ -364,6 +405,7 @@ export class ProviderManager {
       savedAt: new Date().toISOString(),
       providers,
       seededDefaultIds: this.seededDefaultIds,
+      puterVisionDeprioritizedV1: this.puterVisionDeprioritizedV1,
     };
     await this.persistence.save(data);
     Logger.debug('ProviderManager: providers saved.');
@@ -376,6 +418,7 @@ export class ProviderManager {
     this.registry.clear();
     this.registry.loadProviders(defaultProviders);
     this.seededDefaultIds = defaultProviders.map(p => p.id);
+    this.puterVisionDeprioritizedV1 = true;
     await this.saveProviders();
     Logger.info('ProviderManager: reset to defaults.');
   }
@@ -807,7 +850,16 @@ export class ProviderManager {
     // into the options every adapter receives so nothing here is decided
     // for the user with no way to turn it off (see
     // TransformersAdapter.caption's use of includeOcr).
-    extraOptions?: { includeOcr?: boolean }
+    // `preferredProviderId` / `model` back item 8's Provider/Model
+    // selectors in VisionMode.ts: when set, callVision restricts the race
+    // to just that one provider (see the filter right after `candidates`
+    // is built below) instead of racing every enabled vision-capable
+    // provider, and `model` flows straight through to `{ mode:'vision',
+    // ...extraOptions }` below — every adapter already reads
+    // `options?.model || provider.defaultModel` (see e.g.
+    // OpenAICompatibleAdapter.call), so no adapter changes were needed to
+    // support a per-call model override.
+    extraOptions?: { includeOcr?: boolean; preferredProviderId?: string; model?: string }
   ): Promise<string> {
     // Anthropic and Gemini's own adapters always speak their native
     // multimodal format. 'puter' is included because Puter.js genuinely
@@ -841,7 +893,7 @@ export class ProviderManager {
     // have no chat/vision use, so including them would just add dead
     // candidates that always fail.
     const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'openrouter', 'groq', 'openai', 'together', 'deepinfra', 'transformers', 'ollama'];
-    const candidates = this.filterForConnectivity(
+    let candidates = this.filterForConnectivity(
       this.applyRoutingMode(
         this.filterForEnvironment(
           router
@@ -861,6 +913,29 @@ export class ProviderManager {
       ),
       log
     );
+
+    // Item 8 — Provider selector: "Auto" (the default) leaves `candidates`
+    // untouched and races everything, same as before this option existed.
+    // Picking a specific provider narrows the race down to just that one —
+    // but only when it's actually still a real, usable candidate right now
+    // (enabled, has a key if it needs one, passed environment/connectivity
+    // filtering above); if the person picked a provider that's since been
+    // disabled or lost its key, silently restricting to an empty list would
+    // just produce a confusing "no vision provider available" error even
+    // though other providers are configured and working, so this falls
+    // back to the full automatic race instead, with a clear log line
+    // explaining why the preference wasn't honored this time.
+    if (extraOptions?.preferredProviderId) {
+      const preferred = candidates.filter(p => p.id === extraOptions.preferredProviderId);
+      if (preferred.length > 0) {
+        candidates = preferred;
+      } else {
+        log?.(
+          `Preferred vision provider "${extraOptions.preferredProviderId}" isn't currently available (disabled, missing a key, or filtered out for this environment) — falling back to the automatic race across all configured vision providers.`,
+          'warn'
+        );
+      }
+    }
 
     if (candidates.length === 0) {
       const routingMode = getRoutingMode();

@@ -442,6 +442,13 @@ export class VisionNodeExecutor extends BaseNodeExecutor {
     const { providerManager, router } = context.services;
     return providerManager.callVision(imageBase64, prompt, router, context.log, {
       includeOcr: node.config?.includeOcr,
+      // Item 8 — Provider/Model selectors (VisionMode.ts): when the person
+      // picked something other than "Auto", it's threaded in here exactly
+      // like CodingNodeExecutor's explicitModel/modelAdapterHint pattern
+      // above — an explicit choice from the UI always wins, "Auto" (no
+      // config values set) behaves exactly as it always has.
+      preferredProviderId: node.config?.preferredProviderId,
+      model: node.config?.model,
     });
   }
 }

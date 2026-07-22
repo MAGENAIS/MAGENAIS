@@ -138,15 +138,21 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
   },
   {
     // Cloud fallback for Vision, tried only after the local/free default
-    // above. PuterAdapter already implements genuine multimodal vision Q&A
+    // above AND after every one of the eight keyed cloud vision presets
+    // below (Google AI Studio, OpenRouter, Hugging Face, GitHub Models,
+    // Cloudflare, NVIDIA NIM, Mistral Pixtral, Groq — priorities 50-57).
+    // PuterAdapter already implements genuine multimodal vision Q&A
     // (puter.ai.chat(prompt, imageDataUrl) — see PuterAdapter.vision()),
     // zero signup, and can actually answer open-ended questions the local
     // captioning model above can't ("what color is the car", "read this
-    // sign and translate it"). It's deliberately NOT the primary default —
-    // unlike the fully local pipeline above, Puter's hosted usage isn't
-    // guaranteed unlimited and can occasionally hit their own paid-usage
-    // paywall — so it sits at a lower priority, used to upgrade the answer
-    // when reachable rather than being depended on.
+    // sign and translate it"). It's deliberately NOT the primary default,
+    // and — per explicit user request — deliberately not prioritized above
+    // ANY other vision option either, keyed or not: unlike the fully local
+    // pipeline above, Puter's hosted usage isn't guaranteed unlimited and
+    // can occasionally hit their own paid-usage paywall, so priority 90+
+    // (last, right before nothing) means it only ever gets a turn if every
+    // other configured vision candidate — local, and any cloud one you've
+    // actually added a key for — has already failed.
     id: 'builtin-puter-vision',
     name: 'Puter.js Vision — GPT (cloud fallback, no key)',
     type: 'text',
@@ -154,7 +160,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'puter.ai.chat',
     authType: 'none',
     defaultModel: 'openai/gpt-5.4-nano',
-    priority: 45,
+    priority: 90,
     enabled: false, // Disabled by default per user request — Puter's occasional "Upgrade Now" paywall modal was unwanted. Enable manually in Keys & Providers if you want this as a zero-key vision fallback, or add a real vision-capable key (Anthropic/Gemini/OpenAI) instead.
     noKeyNeeded: true,
     isPreset: true,
@@ -187,7 +193,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'puter.ai.chat',
     authType: 'none',
     defaultModel: 'anthropic/claude-sonnet-5',
-    priority: 46,
+    priority: 91,
     enabled: false, // Disabled by default per user request — see builtin-puter-vision above.
     noKeyNeeded: true,
     isPreset: true,
@@ -205,7 +211,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'puter.ai.chat',
     authType: 'none',
     defaultModel: 'google/gemini-2.5-flash',
-    priority: 47,
+    priority: 92,
     enabled: false, // Disabled by default per user request — see builtin-puter-vision above.
     noKeyNeeded: true,
     isPreset: true,
@@ -225,8 +231,9 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
   // All eight use the type:'text' + visionOnly:true convention documented
   // on builtin-transformers-vision above and on ProviderConfig.visionOnly
   // in types.ts — there is no separate 'vision' ProviderType. Priorities
-  // 50-57 sit after the free/keyless captioning + Puter fallbacks (15-47)
-  // so those are always tried first; among each other, priority roughly
+  // 50-57 sit after the local/free captioning default (the
+  // builtin-transformers-vision entry above, priority 40) so that one is
+  // always tried first; among each other, priority roughly
   // follows how generous/reliable each free tier is.
   // ---------------------------------------------------------------------
   {
