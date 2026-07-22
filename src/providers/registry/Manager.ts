@@ -827,7 +827,20 @@ export class ProviderManager {
     // included so Vision has a genuine zero-setup path — see
     // builtin-transformers-vision in defaultProviders.ts, which is what
     // guarantees this list is never empty on a fresh install.
-    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'transformers', 'ollama'];
+    // 'openrouter', 'groq', 'openai', 'together', and 'deepinfra' are each
+    // registered as their own adapterId (see Kernel.registerAdapters) but
+    // are ALL actually backed by the SAME OpenAICompatibleAdapter instance
+    // as 'openai-compatible' — none of that group was in this list
+    // originally (only 'openai-compatible' itself was), so a vision preset
+    // routed through any of them (e.g. preset-groq-vision,
+    // preset-openrouter-vision below) would validate, enable, and show up
+    // correctly in Keys & Providers, yet silently never be included as a
+    // Vision candidate. Deliberately NOT included: 'falai'/'replicate'
+    // (image/media generation, not chat), 'deepgram'/'assemblyai'/'playht'
+    // (speech-to-text/TTS only) — those share the adapter class too but
+    // have no chat/vision use, so including them would just add dead
+    // candidates that always fail.
+    const VISION_CAPABLE_ADAPTERS = ['anthropic', 'gemini', 'puter', 'openai-compatible', 'openrouter', 'groq', 'openai', 'together', 'deepinfra', 'transformers', 'ollama'];
     const candidates = this.filterForConnectivity(
       this.applyRoutingMode(
         this.filterForEnvironment(

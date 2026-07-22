@@ -215,6 +215,191 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     timeoutMs: 30000,
     retries: 1,
   },
+  // ---------------------------------------------------------------------
+  // BUILT-IN CLOUD VISION PROVIDERS — all eight (Google AI Studio,
+  // OpenRouter, Hugging Face, GitHub Models, Cloudflare, NVIDIA NIM,
+  // Mistral Pixtral, Groq) are registered out of the box (no need to
+  // manually add them via "+ Add custom provider") but disabled until the
+  // person supplies an API key, exactly like every other keyed preset below
+  // (see the "Requirement #3/#9" comment repeated throughout this file).
+  // All eight use the type:'text' + visionOnly:true convention documented
+  // on builtin-transformers-vision above and on ProviderConfig.visionOnly
+  // in types.ts — there is no separate 'vision' ProviderType. Priorities
+  // 50-57 sit after the free/keyless captioning + Puter fallbacks (15-47)
+  // so those are always tried first; among each other, priority roughly
+  // follows how generous/reliable each free tier is.
+  // ---------------------------------------------------------------------
+  {
+    id: 'preset-gemini-vision',
+    name: 'Google AI Studio — Gemini 2.5 Flash Vision',
+    type: 'text',
+    adapterId: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    authType: 'query',
+    authQueryParam: 'key',
+    defaultModel: 'gemini-2.5-flash',
+    priority: 50,
+    enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default.
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'document-analysis', 'table-recognition', 'chart-analysis', 'ui-screenshot-analysis', 'math-ocr', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering', 'multi-image-reasoning'],
+    notes: 'Google AI Studio offers a genuinely free API tier for Gemini 2.5 Flash (rate-limited, not a trial) — get a free key at aistudio.google.com/apikey. Same GeminiAdapter/endpoint as the plain "Google Gemini" text preset above; this entry just defaults to a vision-strong model and is flagged visionOnly so it lists under Vision, not Text.',
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
+    id: 'preset-openrouter-vision',
+    name: 'OpenRouter Vision',
+    type: 'text',
+    adapterId: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    authType: 'bearer',
+    defaultModel: 'meta-llama/llama-3.2-11b-vision-instruct:free',
+    priority: 51,
+    enabled: false,
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'document-analysis', 'chart-analysis', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering'],
+    notes: 'Same OpenAI-compatible gateway as "OpenRouter (Free Models)" above, routed through the same OpenAICompatibleAdapter (see VISION_CAPABLE_ADAPTERS in registry/Manager.ts). Free vision-capable models on OpenRouter rotate — if this exact ":free" model id 404s, browse openrouter.ai/models?modalities=image for a current one and update Preferred model.',
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
+    id: 'preset-huggingface-vision',
+    name: 'Hugging Face Vision',
+    type: 'text',
+    // Routed through the generic OpenAICompatibleAdapter (via HF's own
+    // OpenAI-compatible Inference Providers router) rather than the
+    // dedicated 'huggingface' adapter — HuggingFaceAdapter only implements
+    // image/audio/video/music generation and plain text chat today, no
+    // multimodal image-input path, so reusing the already vision-capable
+    // openai-compatible pipeline (see Manager.ts's callVision) gets this
+    // working with zero new adapter code instead of duplicating that logic.
+    adapterId: 'openai-compatible',
+    baseUrl: 'https://router.huggingface.co/v1',
+    authType: 'bearer',
+    defaultModel: 'meta-llama/Llama-3.2-11B-Vision-Instruct',
+    priority: 52,
+    enabled: false,
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'document-analysis', 'chart-analysis', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering'],
+    notes: 'Hugging Face\'s OpenAI-compatible router (router.huggingface.co/v1/chat/completions) rather than the classic Inference API — get a free token at huggingface.co/settings/tokens. Swap Preferred model for any other vision-capable model hosted behind the router.',
+    timeoutMs: 45000,
+    retries: 1,
+  },
+  {
+    id: 'preset-github-models-vision',
+    name: 'GitHub Models Vision',
+    type: 'text',
+    adapterId: 'openai-compatible',
+    baseUrl: 'https://models.github.ai/inference',
+    authType: 'bearer',
+    defaultModel: 'openai/gpt-4o',
+    priority: 53,
+    enabled: false,
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'document-analysis', 'table-recognition', 'chart-analysis', 'ui-screenshot-analysis', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering', 'multi-image-reasoning'],
+    notes: 'Same free-with-any-GitHub-PAT gateway as the "GitHub Models" text preset above, defaulted to a vision-capable model. IMPORTANT: GitHub announced GitHub Models (playground, catalog, inference API, and BYOK) is being fully retired 2026-07-30, with brownout test outages on 2026-07-16 and 2026-07-23 — plan to switch to another vision provider before then.',
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
+    id: 'preset-cloudflare-vision',
+    name: 'Cloudflare Workers AI Vision',
+    type: 'text',
+    adapterId: 'openai-compatible',
+    baseUrl: 'https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1',
+    authType: 'bearer',
+    defaultModel: '@cf/llava-hf/llava-1.5-7b-hf',
+    priority: 54,
+    enabled: false,
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    // Same CORS gap as every other api.cloudflare.com preset in this file —
+    // see preset-cloudflare-text's notes for the full explanation.
+    requiresServerProxy: true,
+    capabilities: ['image-understanding', 'ocr', 'image-captioning', 'visual-question-answering', 'scene-description'],
+    notes: 'Replace YOUR_ACCOUNT_ID in the Base URL with your own Cloudflare account ID (same placeholder pattern as "Cloudflare Workers AI" above — this app warns if it\'s left unedited). Free tier with a Cloudflare account + API token. Requires the local CORS proxy (requiresServerProxy) — Cloudflare sends no Access-Control-Allow-Origin header on any /client/v4/* endpoint.',
+    timeoutMs: 45000,
+    retries: 1,
+  },
+  {
+    id: 'preset-nvidia-nim-vision',
+    name: 'NVIDIA NIM Vision',
+    type: 'text',
+    adapterId: 'openai-compatible',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    authType: 'bearer',
+    defaultModel: 'meta/llama-3.2-90b-vision-instruct',
+    priority: 55,
+    enabled: false,
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'document-analysis', 'chart-analysis', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering'],
+    notes: 'OpenAI-compatible NVIDIA NIM catalog — free API credits available with an NVIDIA developer account at build.nvidia.com. Model catalog moves; use the "Discover" button in this provider\'s editor (GET /v1/models) to confirm the current vision-capable model roster.',
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
+    id: 'preset-mistral-pixtral',
+    name: 'Mistral Pixtral',
+    type: 'text',
+    adapterId: 'openai-compatible',
+    baseUrl: 'https://api.mistral.ai/v1',
+    authType: 'bearer',
+    defaultModel: 'pixtral-12b-2409',
+    priority: 56,
+    enabled: false,
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'document-analysis', 'chart-analysis', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering', 'multi-image-reasoning'],
+    notes: 'Mistral\'s own vision-language model family (Pixtral), served through the same OpenAI-compatible endpoint as "Mistral AI" above. Has a free/experimental tier for limited use — get a key at console.mistral.ai. Swap Preferred model for pixtral-large-latest for the larger variant.',
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
+    id: 'preset-groq-vision',
+    name: 'Groq Vision',
+    type: 'text',
+    adapterId: 'groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    authType: 'bearer',
+    // ROOT CAUSE FIX (verified via web search, July 2026): Groq deprecated
+    // meta-llama/llama-4-scout-17b-16e-instruct (its previous default
+    // vision model) on 2026-06-17 — see console.groq.com/docs/deprecations
+    // and preset-groq's identical note above for the sibling text-only
+    // deprecation. Their own current recommendation for multimodal is
+    // qwen/qwen3.6-27b, which Promptfoo's Groq provider docs also confirm
+    // as "the current vision-capable model" as of this writing — though
+    // Groq itself flags it as a preview model (eval, not production).
+    defaultModel: 'qwen/qwen3.6-27b',
+    priority: 57,
+    enabled: false,
+    noKeyNeeded: false,
+    isPreset: true,
+    isBuiltIn: false,
+    visionOnly: true,
+    capabilities: ['image-understanding', 'ocr', 'document-analysis', 'chart-analysis', 'object-detection', 'scene-description', 'image-captioning', 'visual-question-answering'],
+    notes: 'Same free-tier, very-fast-inference gateway as the "Groq" text preset above, routed to a vision-capable model. Groq\'s multimodal lineup changes often and the currently-recommended model is itself a preview — if this id 404s or is retired, check console.groq.com/docs/vision for the current roster and update Preferred model. Get a free key at console.groq.com/keys.',
+    timeoutMs: 30000,
+    retries: 1,
+  },
   {
     id: 'builtin-transformers-audio',
     name: 'Transformers.js Whisper (Browser, no key)',

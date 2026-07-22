@@ -24,21 +24,6 @@ import { Persistence } from './core/state/Persistence';
 import { App } from './ui/App';
 
 
-import { Bootstrap } from "./bootstrap/Bootstrap";
-
-// NOTE: `Bootstrap`/`config/ProviderRegistry`/`config/appDefaults` are an
-// earlier, disconnected scaffold for first-run provider seeding. They write
-// to their own localStorage keys (`magenais.providers`, `magenais.settings`)
-// that the real Kernel/ProviderManager never read — running both this and
-// the real bootstrap() below didn't cause a functional bug (no shared
-// state), but it was dead code masquerading as initialization and made the
-// actual provider-persistence bug harder to trace. The real, single source
-// of truth for provider bootstrapping is Kernel.boot() -> ProviderManager
-// .loadProviders(DEFAULT_PROVIDERS) below. Left un-called (rather than
-// deleted) in case it's intentionally revived later.
-// new Bootstrap().start();
-
-
 async function bootstrap() {
   // 1. Load configuration
   const config = await Config.load();

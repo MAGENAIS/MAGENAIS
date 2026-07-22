@@ -333,6 +333,45 @@ export class SettingsModal {
             </div>
           </details>
 
+          <details class="log-details settings-accordion" id="visionSettingsDetails">
+            <summary>Vision settings</summary>
+            <div class="settings-accordion-body">
+              <p class="hint">Applies to every Vision provider (built-in and custom) and to the Camera tab's continuous analysis loop.</p>
+              <div class="field-row">
+                <div class="field">
+                  <label class="field-label">Max image size (px, longest edge)</label>
+                  <input type="number" id="vs-maxImageSizePx" min="128" step="64">
+                </div>
+                <div class="field">
+                  <label class="field-label">JPEG quality <span class="opt">0-1</span></label>
+                  <input type="number" id="vs-jpegQuality" min="0.1" max="1" step="0.05">
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label class="field-label">Camera FPS</label>
+                  <input type="number" id="vs-cameraFps" min="1" max="60">
+                </div>
+                <div class="field">
+                  <label class="field-label">Continuous analysis interval (ms)</label>
+                  <input type="number" id="vs-continuousIntervalMs" min="1000" step="1000">
+                </div>
+              </div>
+              <div class="field">
+                <label class="field-label">Max upload size (MB)</label>
+                <input type="number" id="vs-maxUploadSizeMB" min="1">
+              </div>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:8px 0;">
+                <input type="checkbox" id="vs-autoResize" style="width:auto;">
+                <span>Auto-resize images larger than the max size above before sending</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="vs-pngSupport" style="width:auto;">
+                <span>Keep PNG uploads as PNG <span class="opt">off re-encodes everything to JPEG during resize, for smaller payloads</span></span>
+              </label>
+            </div>
+          </details>
+
           <details class="log-details settings-accordion" id="diagnosticsDetails">
             <summary>Diagnostics</summary>
             <div class="settings-accordion-body">
@@ -403,6 +442,55 @@ export class SettingsModal {
         Logger.configure(config.logLevel);
       });
     }
+
+    this.wireVisionSettings(el);
+  }
+
+  /**
+   * Item 7 — Vision settings. Populates the "Vision settings" accordion
+   * from Config on open, and persists any change back immediately (same
+   * save-on-change pattern as the debug toggle above, rather than a
+   * separate "Save" button — these are low-stakes numeric preferences, not
+   * something that needs a confirm step). VisionMode reads these directly
+   * from Config at capture/analysis time, so a change here takes effect on
+   * the very next frame/upload — no restart needed.
+   */
+  private wireVisionSettings(root: HTMLElement): void {
+    const ids = ['maxImageSizePx', 'jpegQuality', 'cameraFps', 'continuousIntervalMs', 'maxUploadSizeMB'] as const;
+    const checkboxIds = ['autoResize', 'pngSupport'] as const;
+
+    Config.load().then((config) => {
+      ids.forEach((key) => {
+        const input = root.querySelector(`#vs-${key}`) as HTMLInputElement | null;
+        if (input) input.value = String(config.vision[key]);
+      });
+      checkboxIds.forEach((key) => {
+        const input = root.querySelector(`#vs-${key}`) as HTMLInputElement | null;
+        if (input) input.checked = !!config.vision[key];
+      });
+    });
+
+    const saveField = async (key: (typeof ids)[number], parse: (v: string) => number) => {
+      const input = root.querySelector(`#vs-${key}`) as HTMLInputElement | null;
+      if (!input) return;
+      const config = await Config.load();
+      const parsed = parse(input.value);
+      if (!Number.isFinite(parsed)) return; // leave the stored value alone rather than persisting NaN from a mid-edit blank field
+      config.vision = { ...config.vision, [key]: parsed };
+      await Config.save(config);
+    };
+    ids.forEach((key) => {
+      const input = root.querySelector(`#vs-${key}`) as HTMLInputElement | null;
+      input?.addEventListener('change', () => saveField(key, key === 'jpegQuality' ? parseFloat : (v) => parseInt(v, 10)));
+    });
+    checkboxIds.forEach((key) => {
+      const input = root.querySelector(`#vs-${key}`) as HTMLInputElement | null;
+      input?.addEventListener('change', async () => {
+        const config = await Config.load();
+        config.vision = { ...config.vision, [key]: input.checked };
+        await Config.save(config);
+      });
+    });
   }
 
   private renderList(): void {
@@ -976,6 +1064,22 @@ export class SettingsModal {
     m.querySelector('#closeProviderEdit')?.addEventListener('click', () => m.remove());
     m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
 
+    // UX sync (not itself the bug fix — see saveProviderBtn's handler for
+    // the actual root-cause fix): reflects the "Vision" Type selection onto
+    // the Vision-only checkbox live, so what's about to be saved is never a
+    // surprise. Picking "Vision" force-checks and locks the checkbox
+    // (it's implied); picking anything else hands control back to the user.
+    const peTypeSelect = m.querySelector('#pe-type') as HTMLSelectElement | null;
+    const peVisionOnlyCheckbox = m.querySelector('#pe-visionOnly') as HTMLInputElement | null;
+    const syncVisionOnlyCheckbox = () => {
+      if (!peTypeSelect || !peVisionOnlyCheckbox) return;
+      const isVisionType = peTypeSelect.value === 'vision';
+      if (isVisionType) peVisionOnlyCheckbox.checked = true;
+      peVisionOnlyCheckbox.disabled = isVisionType;
+    };
+    syncVisionOnlyCheckbox();
+    peTypeSelect?.addEventListener('change', syncVisionOnlyCheckbox);
+
     if (localTask) {
       const select = m.querySelector('#pe-defaultModel') as HTMLSelectElement | null;
       const meta = m.querySelector('#pe-defaultModel-meta') as HTMLElement | null;
@@ -1020,11 +1124,35 @@ export class SettingsModal {
     m.querySelector('#saveProviderBtn')?.addEventListener('click', () => {
       const authType = (document.getElementById('pe-authType') as HTMLSelectElement).value as ProviderConfig['authType'];
       const authFieldName = (document.getElementById('pe-authFieldName') as HTMLInputElement).value.trim();
+      // ROOT CAUSE FIX (Vision "Add Provider" bug): the Type <select> above
+      // reuses TYPE_FILTERS for its options, which includes the UI-only
+      // 'vision' pseudo-category (see the doc comment on TYPE_FILTERS and
+      // on ProviderConfig.visionOnly in types.ts) so a person can pick
+      // "Vision" directly from the Type dropdown, not just via the
+      // Vision-only checkbox further down. But 'vision' has never been a
+      // real ProviderType — ProviderRegistry.getProviders(type) and every
+      // list in this file compare against the literal ProviderType union,
+      // which doesn't include it. Previously this raw select value was
+      // written straight into `updated.type` with no translation: the
+      // provider saved fine (registerProvider/localStorage never validate
+      // `type` — see ProviderValidator.validate, which doesn't check it),
+      // but it could then never match ANY list — not getProviders('text')
+      // (type !== 'text'), not the Vision tab's `getProviders('text')
+      // .filter(isVisionOnly)` (excluded before isVisionOnly is even
+      // checked), not any other type-based filter either. Only the "All"
+      // tab (getProviders() with no type filter) ever showed it, and even
+      // there it was mislabeled. Fix: picking "Vision" in the Type
+      // dropdown is now shorthand for "type:'text' + visionOnly:true" —
+      // the same convention every built-in vision provider already uses —
+      // so the new provider appears in the Vision list immediately, no
+      // restart or refresh needed.
+      const rawType = (document.getElementById('pe-type') as HTMLSelectElement).value as ProviderType | 'vision';
+      const pickedVisionType = rawType === 'vision';
       const updated: ProviderConfig = {
         ...provider,
         name: (document.getElementById('pe-name') as HTMLInputElement).value.trim() || 'Unnamed Provider',
         priority: parseInt((document.getElementById('pe-priority') as HTMLInputElement).value, 10) || 50,
-        type: (document.getElementById('pe-type') as HTMLSelectElement).value as ProviderType,
+        type: pickedVisionType ? 'text' : rawType,
         adapterId: (document.getElementById('pe-adapterId') as HTMLSelectElement).value,
         baseUrl: (document.getElementById('pe-baseUrl') as HTMLInputElement).value.trim(),
         apiKey: (document.getElementById('pe-apiKey') as HTMLInputElement).value.trim() || undefined,
@@ -1034,7 +1162,11 @@ export class SettingsModal {
         defaultModel: (document.getElementById('pe-defaultModel') as HTMLInputElement | HTMLSelectElement).value.trim() || undefined,
         timeoutMs: parseInt((document.getElementById('pe-timeoutMs') as HTMLInputElement).value, 10) || 30000,
         noKeyNeeded: (document.getElementById('pe-noKeyNeeded') as HTMLInputElement).checked,
-        visionOnly: (document.getElementById('pe-visionOnly') as HTMLInputElement).checked || undefined,
+        // Picking "Vision" in the Type dropdown always implies visionOnly,
+        // regardless of the checkbox's own state — the checkbox is still
+        // respected on its own for someone who left Type as 'text' and
+        // just ticked "Vision-only" directly (the pre-existing path).
+        visionOnly: pickedVisionType || (document.getElementById('pe-visionOnly') as HTMLInputElement).checked || undefined,
         requiresServerProxy: (document.getElementById('pe-requiresServerProxy') as HTMLInputElement).checked || undefined,
         notes: (document.getElementById('pe-notes') as HTMLTextAreaElement).value.trim() || undefined,
         enabled: isNew ? true : provider.enabled,
