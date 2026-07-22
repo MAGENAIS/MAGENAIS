@@ -170,15 +170,24 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
     // models, etc.) — this is what lets Vision mode work through any
     // configured OpenAI-compatible provider with a vision-capable model,
     // not just the Anthropic/Gemini-specific adapters.
+    // Same "input.imageBase64 is actually a full data URL" fact every
+    // other vision-capable adapter already accounts for (see
+    // AnthropicAdapter/GeminiAdapter's `.replace(/^data:image\/[a-z]+;base64,/, '')`
+    // and PuterAdapter's `.startsWith('data:') ? ... : ...` — this adapter
+    // was the one exception, blindly wrapping an already-complete data URL
+    // in a second prefix and corrupting it. Matches PuterAdapter's pattern:
+    // pass a data: URL through as-is, only add the prefix for the (today,
+    // theoretical) case of a caller that ever passes raw base64 directly.
     const imageBase64: string | undefined = input?.imageBase64 ?? options?.imageBase64;
+    const imageDataUrl = imageBase64 ? (imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`) : undefined;
     const messages =
       options?.messages ||
-      (imageBase64
+      (imageDataUrl
         ? [{
             role: 'user',
             content: [
               { type: 'text', text: input?.prompt ?? '' },
-              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+              { type: 'image_url', image_url: { url: imageDataUrl } },
             ],
           }]
         : [{ role: 'user', content: input?.prompt ?? input }]);
