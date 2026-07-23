@@ -308,39 +308,6 @@ export class ProviderManager {
       }
     });
 
-    // SELF-HEALING FIX (user-reported: "builtin-transformers-text" missing
-    // entirely on one origin, "builtin-transformers-vision" missing
-    // entirely on another — each browser's persisted `stored` list had
-    // silently lost exactly one of these two rows at some point, most
-    // likely from an accidental Delete during UI testing, or a legacy id
-    // rename orphaning a row under the "isPreset||isBuiltIn but no
-    // trueDefault" drop branch above in an even older install). Once an id
-    // is well past `isFirstLaunch` and marked seeded, the loops above
-    // correctly treat "seeded before, absent from stored now" as a
-    // deliberate user deletion and leave it gone — exactly right for an
-    // ordinary preset or a paid/keyed provider a person genuinely doesn't
-    // want. But the "TRUE ZERO-SETUP DEFAULTS" (see defaultProviders.ts's
-    // own section header) are core infrastructure, not optional presets:
-    // the app's own stated goal is "fully functional after install with
-    // zero API keys", and a person who wants one switched OFF already has
-    // a first-class way to do that — the enabled:false checkbox, which
-    // (unlike absence from `stored`) sticks correctly through this exact
-    // merge logic. There is no legitimate reason a currently-valid
-    // zero-key built-in should be permanently, silently gone rather than
-    // just disabled, so — using the SAME noKeyNeeded/isBuiltIn/non-Puter
-    // predicate as the force-enable loop below, not a new one-off list —
-    // any such default that is completely absent from the merged result
-    // gets re-seeded fresh here. This never touches a row that IS present
-    // (enabled or disabled), so a person's actual disable choice is
-    // untouched; it only recovers a row that's genuinely gone missing.
-    defaultProviders.forEach(p => {
-      if (p.noKeyNeeded && p.isBuiltIn && p.adapterId !== 'puter' && !mergedMap.has(p.id)) {
-        mergedMap.set(p.id, { ...p });
-        seededSet.add(p.id);
-        Logger.info(`ProviderManager: re-seeded core zero-key built-in "${p.name}" (id "${p.id}") — it was missing from this browser's saved provider list (most likely an earlier accidental delete), and a genuinely free/no-key default should never be permanently lost. Use the enabled checkbox in Keys & Providers to turn it off instead of deleting it, if you don't want it.`);
-      }
-    });
-
     // One-time migration (user-reported: Puter's three Vision entries were
     // still showing enabled+checked, at priority 45-47, even after
     // defaultProviders.ts changed their `enabled` default to false and
