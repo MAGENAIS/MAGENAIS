@@ -22,7 +22,8 @@ const STEP_TYPES: StepTypeDef[] = [
   { type: 'speech', label: 'Speech (TTS)', configFields: [{ key: 'voice', label: 'Voice', placeholder: 'alloy' }] },
   { type: 'music', label: 'Music' },
   { type: 'coding', label: 'Coding', configFields: [{ key: 'language', label: 'Language', placeholder: 'JavaScript' }] },
-  { type: 'research', label: 'Research' },
+  { type: 'research', label: 'Research (academic papers)' },
+  { type: 'agents', label: 'Agent (general task)' },
   { type: 'gamegen', label: 'Game' },
 ];
 

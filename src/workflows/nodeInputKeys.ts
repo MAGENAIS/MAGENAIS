@@ -18,6 +18,7 @@ export const NODE_PRIMARY_INPUT_KEY: Partial<Record<NodeType, string>> = {
   coding: 'prompt',
   gamegen: 'concept',
   research: 'query',
+  agents: 'task',
   vision: 'prompt',
   speech: 'text',
   audio: 'audio', // STT — expects an audio file/blob, not text; not offered by text-prompt-only step UIs
@@ -26,4 +27,4 @@ export const NODE_PRIMARY_INPUT_KEY: Partial<Record<NodeType, string>> = {
 };
 
 /** Node types that accept a plain natural-language prompt/query as their primary input. */
-export const TEXT_PROMPT_NODE_TYPES: NodeType[] = ['text', 'image', 'video', 'music', 'coding', 'gamegen', 'research', 'vision', 'speech'];
+export const TEXT_PROMPT_NODE_TYPES: NodeType[] = ['text', 'image', 'video', 'music', 'coding', 'gamegen', 'research', 'agents', 'vision', 'speech'];

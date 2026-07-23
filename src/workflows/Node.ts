@@ -260,6 +260,55 @@ export class ResearchNodeExecutor extends BaseNodeExecutor {
   }
 }
 
+export class AgentNodeExecutor extends BaseNodeExecutor {
+  type: NodeType = 'agents';
+
+  // ROOT CAUSE (user-reported: Agents tab pipeline step type dropdown only
+  // offered 'research', 'text', 'coding', 'image', 'speech', 'gamegen' — no
+  // real general-purpose "agent" node type ever existed, even though a
+  // dedicated 'agents' ProviderType/provider pool (see defaultProviders.ts,
+  // builtin-ollama-agents / preset-openrouter-agents) has existed the whole
+  // time with no NodeType/executor ever routing to it. Users reaching for
+  // an "agent that can do a task" naturally picked 'research', because it
+  // was the closest-sounding option — but ResearchNodeExecutor is a narrow,
+  // literal academic-paper pipeline (Semantic Scholar/OpenAlex/arXiv) with
+  // a Wikipedia last-resort fallback; "Book a flight from IKA to YVR"
+  // produced zero paper matches, fell through to Wikipedia, and Wikipedia
+  // returned an unrelated "IATA airport code" article summary — a
+  // completely wrong result for what looked like a general task request.
+  // This executor is the real general-purpose task agent: any instruction,
+  // not just literature questions, routed through the (now populated, see
+  // defaultProviders.ts) 'agents' provider pool.
+  async execute(node: Node, context: ExecutionContext): Promise<any> {
+    const inputs = await this.resolveInputs(node, context.variables, context.inputs, context);
+    const task = inputs.task || inputs.prompt || '';
+    if (!task) throw new Error('Agent node requires a task.');
+
+    // This agent has no live browsing, no real-world booking/payment/device
+    // control, and no tool access beyond the LLM itself — be explicit about
+    // that instead of silently failing or hallucinating a fake confirmation,
+    // but still give the most useful possible answer: concrete next steps,
+    // specific real options/sites/tools, any info reasoning can supply, and
+    // a ready-to-use draft (search query, message, checklist, itinerary...)
+    // the user can act on immediately. Pure reasoning/writing/analysis/
+    // planning/coding tasks just get completed directly.
+    const instructions =
+      'You are a general-purpose task-completing AI agent. You do not have live internet ' +
+      'browsing, real-world booking/payment ability, or access to external accounts or ' +
+      'devices. If the task requires an action you cannot literally perform (booking a ' +
+      'flight, sending an email, making a purchase, controlling a device, etc.), say so in ' +
+      'one short sentence, then still be maximally useful: give the concrete steps the user ' +
+      'should take, name specific real options/sites/tools suited to the task, supply any ' +
+      'information you can reason out (typical routes, requirements, considerations), and ' +
+      'produce a ready-to-use draft (a search query, message, checklist, itinerary, etc.) ' +
+      'they can act on immediately. For tasks that are pure reasoning, analysis, writing, ' +
+      'planning, or coding, just complete them directly and fully — do not add unnecessary ' +
+      'disclaimers to those.';
+    const prompt = `${instructions}\n\nTask: ${task}`;
+    return this.callProvider(node, { prompt }, context);
+  }
+}
+
 export class GameGenNodeExecutor extends BaseNodeExecutor {
   type: NodeType = 'gamegen';
 
@@ -462,6 +511,7 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   new SpeechNodeExecutor(),
   new MusicNodeExecutor(),
   new ResearchNodeExecutor(),
+  new AgentNodeExecutor(),
   new GameGenNodeExecutor(),
   new DataNodeExecutor(),
   new DocNodeExecutor(),

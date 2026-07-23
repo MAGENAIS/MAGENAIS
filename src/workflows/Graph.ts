@@ -188,7 +188,7 @@ export class GraphUtils {
   // 'speech' (spoken verbatim) and 'research' (used as a literal search
   // query) are deliberately excluded: wrapping those would corrupt the exact
   // text/query they're meant to carry through unchanged.
-  private static readonly INSTRUCTION_TEXT_TYPES = new Set(['text', 'coding', 'gamegen']);
+  private static readonly INSTRUCTION_TEXT_TYPES = new Set(['text', 'coding', 'gamegen', 'agents']);
 
   /**
    * ROOT CAUSE (reported: workflow chaining, e.g. text -> image or

@@ -91,7 +91,7 @@ export class AgentsMode extends Mode {
 
     // Add pipeline step
     document.getElementById('addPipelineStepBtn')?.addEventListener('click', () => {
-      this.pipelineSteps.push({ id: 'step-' + Date.now(), modeType: 'text', promptTemplate: '', personaId: '' });
+      this.pipelineSteps.push({ id: 'step-' + Date.now(), modeType: 'agents', promptTemplate: '', personaId: '' });
       this.saveState();
       this.renderPipelineSteps();
     });
@@ -117,7 +117,7 @@ export class AgentsMode extends Mode {
       // the same example via its `placeholder` attribute below, which is the
       // correct place for hint text — it displays only when empty and clears
       // itself the moment the user starts typing.
-      this.pipelineSteps = [{ id: 'step1', modeType: 'research', promptTemplate: '', personaId: '' }];
+      this.pipelineSteps = [{ id: 'step1', modeType: 'agents', promptTemplate: '', personaId: '' }];
     }
   }
 
@@ -165,8 +165,25 @@ export class AgentsMode extends Mode {
     // it failed outright); 'audio' is speech-to-text, which needs an audio
     // FILE as input, not a text prompt, so it never made sense here either.
     // 'speech' (text-to-speech) fits the same shape as the others.
-    const typeOptions = ['research', 'text', 'coding', 'image', 'speech', 'gamegen'].map(t =>
-      `<option value="${t}">${t}</option>`
+    //
+    // 'agents' (general task) is listed first and is the default for new
+    // steps — see AgentNodeExecutor in Node.ts. 'research' is deliberately
+    // NOT a general-purpose option: it is a literal academic-paper-only
+    // pipeline (Semantic Scholar/OpenAlex/arXiv), so it's labeled
+    // explicitly here to avoid the exact bug that was reported — a
+    // non-literature task like "book a flight" being sent to it, matching
+    // nothing, and falling through to an unrelated Wikipedia summary.
+    const typeLabels: Record<string, string> = {
+      agents: 'agent (general task)',
+      research: 'research (academic papers only)',
+      text: 'text',
+      coding: 'coding',
+      image: 'image',
+      speech: 'speech (text-to-speech)',
+      gamegen: 'gamegen',
+    };
+    const typeOptions = ['agents', 'research', 'text', 'coding', 'image', 'speech', 'gamegen'].map(t =>
+      `<option value="${t}">${typeLabels[t]}</option>`
     ).join('');
     this.pipelineSteps.forEach((step, idx) => {
       const card = document.createElement('div');
@@ -197,7 +214,7 @@ export class AgentsMode extends Mode {
         </div>
         <div class="field">
           <label class="field-label">Prompt ${idx>0?'<span style="text-transform:none;color:var(--ink-faint);">use {{previous}}</span>':''}</label>
-          <textarea data-field="promptTemplate" rows="3" placeholder="${idx===0 ? 'e.g. Latest research on solid-state batteries' : 'e.g. Write a short summary of: {{previous}}'}">${step.promptTemplate}</textarea>
+          <textarea data-field="promptTemplate" rows="3" placeholder="${idx===0 ? 'e.g. Draft a project plan for launching a podcast' : 'e.g. Write a short summary of: {{previous}}'}">${step.promptTemplate}</textarea>
         </div>
       `;
 

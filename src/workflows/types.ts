@@ -12,6 +12,7 @@ export type NodeType =
   | 'speech'
   | 'music'
   | 'research'
+  | 'agents'
   | 'gamegen'
   | 'data'
   | 'doc'
