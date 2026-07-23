@@ -394,6 +394,7 @@ export class SettingsModal {
           <details class="log-details settings-accordion" id="diagnosticsDetails">
             <summary>Diagnostics</summary>
             <div class="settings-accordion-body">
+              <div id="diagnosticsBuildInfo" class="hint" style="margin:0; font-family:var(--mono); font-size:11px;"></div>
               <div id="diagnosticsDeviceInfo" class="hint" style="margin:0;"></div>
               <div id="diagnosticsTable" style="display:flex; flex-direction:column; gap:6px;"></div>
 
@@ -747,6 +748,22 @@ export class SettingsModal {
     const deviceInfo = document.getElementById('diagnosticsDeviceInfo');
     const table = document.getElementById('diagnosticsTable');
     if (!deviceInfo || !table) return;
+
+    // BUILD INFO — ROOT-CAUSE-AUDIT ADDITION: "localhost vs GitHub Pages
+    // shows different providers/local models" reports are very often not
+    // an application bug at all but a stale GitHub Pages deploy (GitHub's
+    // CDN / the browser caching an older index.html+bundle than what's in
+    // the repo) — that's indistinguishable from a real code difference
+    // without something like this. __BUILD_TIME__/__COMMIT_SHA__ come from
+    // vite.config.ts's `define`, baked in at build time, so comparing this
+    // line between two tabs answers "are these even running the same code"
+    // before spending any time on the rest of Diagnostics below.
+    const buildInfoEl = document.getElementById('diagnosticsBuildInfo');
+    if (buildInfoEl) {
+      buildInfoEl.textContent =
+        `Build: ${__COMMIT_SHA__} · ${new Date(__BUILD_TIME__).toLocaleString()} · ${Environment.current}` +
+        (Environment.isSecureContext ? ' · https' : ' · http');
+    }
 
     // Device detection is cheap and cached after the first call (see
     // TransformersAdapter.detectDevice) — safe to trigger here rather than
