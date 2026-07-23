@@ -1,8 +1,6 @@
 import { ProviderRegistry } from './registry/Registry';
 import { ProviderConfig, ProviderScore, ProviderType, ProviderHealth } from './types';
 import { Logger } from '../core/Logger';
-import { Environment } from '../core/Environment';
-import { LOCAL_ADAPTER_IDS } from './RoutingMode';
 
 export interface RouterOptions {
   // Weights for scoring
@@ -93,7 +91,7 @@ export class SmartRouter {
       (successScore * weights.successRateWeight) +
       (costScore * weights.costWeight) +
       (quotaScore * weights.quotaWeight)
-    ) / totalWeight + this.environmentAffinityScore(provider);
+    ) / totalWeight;
 
     return {
       providerId: provider.id,
@@ -110,31 +108,31 @@ export class SmartRouter {
   }
 
   /**
-   * ENVIRONMENT-AWARE PROVIDER MANAGEMENT — "Browser providers: Automatically
-   * prioritize Transformers.js/WebLLM/Puter/etc." On a static host with no
-   * backend of its own (GitHub Pages, or any other plain Browser deployment
-   * — see Environment.isStaticHost), a fully local/in-browser provider
-   * (LOCAL_ADAPTER_IDS — the same set filterForConnectivity/RoutingMode
-   * already use, not a new list) is strictly more reliable than a cloud
-   * provider that might turn out to need the CORS proxy this environment
-   * doesn't have (requiresServerProxy — see Manager.ts's filterForEnvironment,
-   * which already excludes the GUARANTEED-to-fail ones; this is a softer
-   * nudge for the ones that legitimately work either way, e.g. a
-   * properly-CORS-enabled cloud API). Added on top of the weighted sum
-   * rather than folded into it, so it doesn't require new RouterOptions
-   * wiring and can never change the RELATIVE order among non-local
-   * providers or among local providers themselves — it only ever moves the
-   * local/local group ahead of the cloud group.
+   * ROOT-CAUSE FIX (dev-vs-GitHub-Pages provider mismatch audit): scoring
+   * used to add a flat +100 to every LOCAL_ADAPTER_IDS provider whenever
+   * Environment.isStaticHost was true, on the theory that a cloud provider
+   * "might turn out to need" the CORS proxy this environment doesn't have.
+   * That was a blanket, environment-level guess layered on top of
+   * per-provider scoring — it moved the entire local/browser group ahead
+   * of the entire cloud group on GitHub Pages regardless of whether any
+   * individual candidate was actually reachable, which is exactly the kind
+   * of "GitHub Pages changes provider selection for a reason that isn't a
+   * real capability difference" behavior Step 8 of the audit calls out.
    *
-   * Zero effect on Desktop/Localhost (isStaticHost is false there) —
-   * "Desktop must behave exactly the same. Localhost must behave exactly
-   * the same" holds by construction, not by a separate check.
+   * The GENUINE capability differences are now handled deterministically,
+   * per provider, in Capability.ts (requiresServerProxy vs
+   * Environment.hasServerProxy; a plain `http://` baseUrl vs
+   * Environment.isSecureContext's mixed-content check) and enforced by
+   * Manager.ts's filterForEnvironment BEFORE candidates ever reach this
+   * scorer — e.g. it's Capability.ts, not this method, that now correctly
+   * excludes `builtin-ollama-text` on an https: GitHub Pages deploy (the
+   * browser's own mixed-content policy blocks `http://localhost:11434`
+   * from there) while leaving it fully eligible on http: localhost.
+   * Scoring itself is therefore identical in both environments: the same
+   * priority/health/latency/successRate/cost/quota weighted sum, with no
+   * separate environment term. A provider that passes the deterministic
+   * capability gate is scored exactly the same way everywhere it runs.
    */
-  private environmentAffinityScore(provider: ProviderConfig): number {
-    if (!Environment.isStaticHost) return 0;
-    return LOCAL_ADAPTER_IDS.has(provider.adapterId) ? 100 : 0;
-  }
-
   private healthToScore(status: ProviderHealth['status']): number {
     switch (status) {
       case 'healthy': return 100;

@@ -40,6 +40,19 @@ export interface ProviderRuntimeCapability {
 }
 
 /**
+ * True when Environment.isSecureContext (this page is https:) and
+ * `baseUrl` is a plain, non-localhost-relative `http://` URL — i.e.
+ * exactly the request shape a browser's mixed-content policy blocks.
+ * `internal:...` / `browser:...` pseudo-URLs (WebLLM, Transformers.js —
+ * see their defaultProviders.ts entries) never match: they don't go over
+ * the network at all, so mixed-content doesn't apply to them.
+ */
+function isBlockedByMixedContent(baseUrl: string): boolean {
+  if (!Environment.isSecureContext) return false;
+  return /^http:\/\//i.test(baseUrl);
+}
+
+/**
  * Computes runtime capability for one provider against Environment.current.
  * Pure function of (provider, Environment) — no side effects, nothing
  * cached, safe to call on every render/every candidate-filter pass.
@@ -63,7 +76,33 @@ export function computeProviderCapability(provider: ProviderConfig): ProviderRun
     };
   }
 
-  // 2. Extension point: an explicit environment allow-list (see
+  // 2. The OTHER real, deterministic capability restriction: a provider
+  //    with a plain `http://` baseUrl (e.g. Ollama's default
+  //    'http://localhost:11434' — see defaultProviders.ts) is reachable
+  //    from an http:-served localhost dev tab, but a browser's mixed-
+  //    content policy blocks that same fetch outright when the page
+  //    itself is served over https: (GitHub Pages, or any other https
+  //    static host) — see Environment.isSecureContext's doc comment for
+  //    the full explanation. This is THE root cause of Ollama silently
+  //    "disappearing" between `npm run dev` and the GitHub Pages build
+  //    even though defaultProviders.ts registers the identical entry in
+  //    both: it was never a registry/merge/priority difference, the
+  //    browser itself refuses the request before it ever reaches
+  //    OllamaAdapter. Surfacing it here (same mechanism as #1 above) means
+  //    it's excluded from the fallback race up front — instead of being
+  //    raced, silently failing, and eating a full timeoutMs slot — and
+  //    Keys & Providers shows a clear, honest reason instead of an
+  //    unexplained "unhealthy".
+  if (isBlockedByMixedContent(provider.baseUrl)) {
+    return {
+      available: false,
+      visible: true,
+      disabledReason: 'Blocked by browser (this page is https, provider is http)',
+      environmentBadge: providerEnvironmentBadge(provider),
+    };
+  }
+
+  // 3. Extension point: an explicit environment allow-list (see
   //    ProviderConfig.supportedEnvironments's doc comment in types.ts) for
   //    a future restriction requiresServerProxy can't express. No shipped
   //    provider sets this today, so this branch is currently a no-op for

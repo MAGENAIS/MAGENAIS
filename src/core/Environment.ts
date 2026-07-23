@@ -44,6 +44,7 @@ export enum RuntimeEnvironment {
 interface EnvironmentOverrides {
   current?: RuntimeEnvironment;
   hasServerProxy?: boolean;
+  isSecureContext?: boolean;
 }
 
 /**
@@ -95,6 +96,29 @@ function detectCurrent(overrides: EnvironmentOverrides): RuntimeEnvironment {
   return RuntimeEnvironment.Browser;
 }
 
+/**
+ * Whether THIS page itself was loaded over `https:`. GitHub Pages always
+ * serves over https; `npm run dev` / `vite preview` on localhost serve
+ * over plain http. This is the deterministic fact behind the
+ * Ollama-works-on-localhost-but-not-on-GitHub-Pages mismatch: browsers
+ * block "mixed content" — an active (fetch/XHR) request from an https:
+ * page to a plain http: URL — before the request ever reaches the
+ * network, let alone the target's own CORS policy. A provider whose
+ * `baseUrl` is `http://localhost:11434` (see defaultProviders.ts's Ollama
+ * entries) is therefore reachable from an http:-served localhost dev tab
+ * but silently blocked by the browser itself when the exact same
+ * provider list is loaded from an https:-served static host. This has
+ * nothing to do with `hasServerProxy` below (that's about whether
+ * server/proxyHandler.mjs exists at all) — it's a separate, equally
+ * deterministic browser platform rule, so it gets its own field rather
+ * than being folded into that one. See Capability.ts for where this
+ * actually gates a provider.
+ */
+function detectIsSecureContext(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.protocol === 'https:';
+}
+
 function detectHasServerProxy(current: RuntimeEnvironment, overrides: EnvironmentOverrides): boolean {
   if (overrides.hasServerProxy !== undefined) return overrides.hasServerProxy;
   // Localhost (npm run dev, via build/corsProxyPlugin.ts) and Desktop
@@ -115,6 +139,9 @@ function detectHasServerProxy(current: RuntimeEnvironment, overrides: Environmen
 const overrides = readOverrides();
 const current = detectCurrent(overrides);
 const hasServerProxy = detectHasServerProxy(current, overrides);
+const isSecureContext = (overrides as any).isSecureContext !== undefined
+  ? (overrides as any).isSecureContext
+  : detectIsSecureContext();
 
 export const Environment = {
   current,
@@ -125,9 +152,12 @@ export const Environment = {
   isServer: current === RuntimeEnvironment.Server,
   isBrowser: current === RuntimeEnvironment.Browser,
 
-  /** Browser or GitHubPages — "a tab with no backend of its own". Used to nudge browser-native providers ahead of ones that might need a proxy this environment doesn't have — see Router.ts's environmentAffinityScore. */
+  /** Browser or GitHubPages — "a tab with no backend of its own". Kept purely informational today (see Capability.ts's `environmentBadge`) — it deliberately does NOT feed into provider scoring/ranking (see Router.ts), since doing so would re-introduce an environment-only bias on top of the deterministic, per-provider capability checks in Capability.ts. */
   isStaticHost: current === RuntimeEnvironment.Browser || current === RuntimeEnvironment.GitHubPages,
 
   /** Whether a same-origin backend (server/proxyHandler.mjs's PROXY_PATH) is actually reachable from here right now. This is what Capability.ts keys `requiresServerProxy` providers' availability off of. */
   hasServerProxy,
+
+  /** Whether this page was itself loaded over https:. Static hosts like GitHub Pages always are; `npm run dev`/`vite preview` on localhost normally isn't. Capability.ts uses this to deterministically exclude plain-http `baseUrl` providers (e.g. Ollama's `http://localhost:11434`) that the browser's own mixed-content policy would block from an https: page — see detectIsSecureContext's doc comment above for the full explanation. */
+  isSecureContext,
 };
