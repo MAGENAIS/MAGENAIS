@@ -865,8 +865,27 @@ export class SettingsModal {
     const rows: Row[] = [];
 
     // Provider-backed rows: one per transformers-adapter ProviderConfig.
+    // ROOT CAUSE FIX (localhost vs GitHub Pages showing different rows
+    // first, e.g. "Transformers.js Text" vs "Transformers.js Vision" at
+    // the identical scroll position): this list was built straight off
+    // manager.getProviders(), which returns Map.values() iteration order —
+    // i.e. registry INSERTION order, not a stable property of the code.
+    // Insertion order only matches defaultProviders.ts on a browser's
+    // very first launch; every later boot re-inserts previously-seeded
+    // providers in whatever order the PERSISTED providers array already
+    // had them in (see registry/Manager.ts's loadProviders), which is a
+    // frozen snapshot of history, not a re-derivation of the current
+    // file. Two origins (localhost vs *.github.io are different origins
+    // entirely, with independently-accumulated localStorage) can
+    // therefore end up with genuinely different Map orders despite
+    // running the exact same commit. Sorting explicitly by `priority`
+    // here — the same fix already applied to the other two provider
+    // lists in this file (see the `.sort` calls above) — makes this
+    // list's order a deterministic function of the CURRENT config,
+    // immune to whatever order localStorage happens to hold.
     manager.getProviders('text').concat(manager.getProviders('audio'), manager.getProviders('music'), manager.getProviders('embeddings' as ProviderType))
       .filter((p: ProviderConfig) => p.adapterId === 'transformers')
+      .sort((a: ProviderConfig, b: ProviderConfig) => a.priority - b.priority)
       .forEach((p: ProviderConfig) => {
         const t = localTaskForProvider(p);
         if (t) rows.push({ label: `${p.name}`, task: t.task, role: t.role, providerId: p.id });
