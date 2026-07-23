@@ -6,6 +6,7 @@ declare global {
     puter?: {
       ai?: {
         chat?: (prompt: string, imageOrOpts?: string | any, opts?: any) => Promise<any>;
+        txt2img?: (prompt: string, opts?: any) => Promise<HTMLImageElement>;
         txt2speech?: (text: string, opts?: any) => Promise<HTMLAudioElement>;
       };
     };
@@ -51,6 +52,7 @@ export class PuterAdapter extends BaseAdapter {
     const mode = options?.mode || provider.type;
     if (mode === 'speech') return this.speech(input, options);
     if (mode === 'vision') return this.vision(input, options);
+    if (mode === 'image') return this.image(input, options);
     return this.text(input, options);
   }
 
@@ -117,6 +119,35 @@ export class PuterAdapter extends BaseAdapter {
     }
     if (!text) throw new Error('empty or unrecognized response shape from Puter.js');
     return text;
+  }
+
+  /**
+   * Image generation via Puter.js: puter.ai.txt2img(prompt, options) — a
+   * genuinely free, no-key text-to-image API (dozens of models including
+   * FLUX and Stable Diffusion, "User-Pays" model means it costs this app
+   * nothing to ship), giving Image mode a second real zero-setup fallback
+   * alongside Pollinations Free Image. Unlike chat()/txt2speech(), this
+   * resolves to a live <img> element rather than a plain string/URL — the
+   * generated image is at its .src, which is what every other adapter's
+   * callImage() already returns (an object URL or http(s) URL), so this
+   * fits the existing image-provider contract without any caller changes.
+   */
+  private async image(input: any, options?: any): Promise<string> {
+    await this.waitForPuter();
+    if (!window.puter?.ai?.txt2img) {
+      throw new Error('Puter.js failed to load from CDN');
+    }
+    const prompt = input?.prompt ?? input;
+    if (!prompt) throw new Error('Image generation requires a prompt.');
+    const imgOptions: Record<string, any> = {};
+    if (options?.model) imgOptions.model = options.model;
+    if (options?.width) imgOptions.width = options.width;
+    if (options?.height) imgOptions.height = options.height;
+    if (options?.seed !== undefined) imgOptions.seed = options.seed;
+    const imageEl = await window.puter.ai.txt2img(prompt, Object.keys(imgOptions).length ? imgOptions : undefined);
+    const src = imageEl?.src;
+    if (!src) throw new Error('Puter.js image generation returned no usable image.');
+    return src;
   }
 
   private async speech(input: any, options?: any): Promise<string> {

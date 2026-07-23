@@ -550,6 +550,30 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     retries: 1,
   },
   {
+    // Second genuinely free, no-key image option (see PuterAdapter.image())
+    // — NOT enabled by default, per user request, matching every other
+    // Puter-backed preset here (text/agents/research above): Puter's
+    // hosted models can hit its own paid-usage paywall ("Upgrade Now"
+    // modal) unpredictably, which this app can't control or suppress.
+    // Enable manually in Keys & Providers if you want it as a fallback
+    // when Pollinations' anonymous tier is rate-limited or Turnstile-
+    // blocked (see builtin-pollinations-free-image's own known caveat).
+    id: 'builtin-puter-image',
+    name: 'Puter.js (optional, no key)',
+    type: 'image',
+    adapterId: 'puter',
+    baseUrl: 'puter.ai.txt2img',
+    authType: 'none',
+    priority: 6, // right after Pollinations Free (5) — the intended "next free thing to try" slot, only reached if you enable it.
+    enabled: false,
+    noKeyNeeded: true,
+    isPreset: true,
+    isBuiltIn: true,
+    notes: "No signup, dozens of models (FLUX, Stable Diffusion, GPT Image, and more) — disabled by default so image generation never risks Puter's occasional paid-usage paywall modal. Enable here any time you want a second free fallback alongside Pollinations.",
+    timeoutMs: 30000,
+    retries: 1,
+  },
+  {
     id: 'builtin-wikipedia-research',
     name: 'Wikipedia (Free, no key)',
     type: 'research',
@@ -1183,6 +1207,11 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/run',
     authType: 'bearer',
     defaultModel: '@cf/black-forest-labs/flux-1-schnell',
+    // ROOT CAUSE FIX (July 2026): Workers AI selects the model via the URL
+    // path (".../ai/run/{model}"), not a body field — baseUrl already ends
+    // at ".../ai/run", so imageEndpoint just appends the model.
+    imageEndpoint: '/{model}',
+    imageIncludeModelInBody: false,
     priority: 31,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -1205,6 +1234,11 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     baseUrl: 'https://openrouter.ai/api/v1',
     authType: 'bearer',
     defaultModel: 'black-forest-labs/flux.2-klein', // ROOT CAUSE FIX (verified via web search, July 2026): flux-1-schnell:free matches the exact "not a valid model ID" error reported — OpenRouter's black-forest-labs catalog has moved entirely to the FLUX.2 family (Klein/Max/Flex/Pro); flux-1-schnell isn't offered at all anymore, free or otherwise. flux.2-klein is their current fastest/cheapest tier, but it is NOT free — see notes.
+    // No imageEndpoint/imageRequestFormat override needed — OpenRouter's
+    // Unified Image API (launched June 2026) speaks the plain OpenAI
+    // POST /images/generations shape, which is OpenAICompatibleAdapter's
+    // default. See callImage() in that file for how this is now
+    // config-driven instead of hardcoded per provider.
     priority: 32,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,
@@ -1259,7 +1293,16 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     adapterId: 'openai-compatible',
     baseUrl: 'https://api.stability.ai/v2beta',
     authType: 'bearer',
-    defaultModel: 'stable-image-core',
+    defaultModel: 'core', // engine name, not a chat-style model id — substituted directly into imageEndpoint below. Other valid values: 'ultra', 'sd3'.
+    // ROOT CAUSE FIX (July 2026): v2beta Stable Image endpoints are
+    // multipart/form-data POSTs to a task-specific subpath
+    // (".../stable-image/generate/{engine}"), not JSON to the bare
+    // v2beta root, and only return raw image bytes (instead of a base64
+    // JSON envelope) when Accept: image/* is sent.
+    imageEndpoint: '/stable-image/generate/{model}',
+    imageRequestFormat: 'multipart',
+    imageResponseFormat: 'binary',
+    imageIncludeModelInBody: false,
     priority: 20,
     enabled: false, // Requirement #3/#9: keyed/paid providers are OPTIONAL and never selected by default — surfaced only in Advanced Settings (Keys & Providers). Flip to true (or simply add an API key, which auto-behaves the same via ProviderManager.callWithFallback's key filter) to opt in.
     noKeyNeeded: false,

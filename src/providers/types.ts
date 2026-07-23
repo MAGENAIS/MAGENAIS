@@ -99,6 +99,42 @@ export interface ProviderConfig {
   capabilities?: string[];      // e.g. ['vision', 'audio']
   quotaRemaining?: number;
   costPerUnit?: number;         // arbitrary unit
+
+  // ------------------------------------------------------------------
+  // Image-generation request shape (type:'image' providers routed
+  // through OpenAICompatibleAdapter only — see callImage()).
+  //
+  // Not every "OpenAI-compatible" provider's image endpoint actually
+  // matches the OpenAI /images/generations contract: some put the model
+  // in the URL path instead of the body (Cloudflare Workers AI), some
+  // require multipart/form-data instead of JSON and return raw bytes
+  // instead of a JSON envelope (Stability AI's v2beta endpoints). Rather
+  // than hardcoding a per-provider branch in the adapter for each of
+  // these, the differences are expressed here as plain data on the
+  // provider config — same pattern already used for authType/
+  // authHeaderPrefix/requiresServerProxy above. Every field is optional
+  // and defaults to the plain OpenAI shape, so a brand new image preset
+  // (or a user's own custom provider) works out of the box with zero
+  // extra configuration unless its API genuinely differs.
+  /**
+   * Path appended to baseUrl for image generation. `{model}` is replaced
+   * with the resolved model id if present, letting model-in-path APIs
+   * (e.g. Cloudflare's ".../ai/run/{model}") work without a body field.
+   * Default: '/images/generations' (OpenAI shape).
+   */
+  imageEndpoint?: string;
+  /** Default: 'json'. 'multipart' sends prompt/width/height/seed as multipart/form-data instead of a JSON body — required by APIs like Stability AI's v2beta endpoints. */
+  imageRequestFormat?: 'json' | 'multipart';
+  /**
+   * Default: 'auto' — trust the response Content-Type header (image/* =
+   * raw bytes, otherwise JSON envelope). Set to 'binary' for an API that
+   * only returns real bytes when a specific Accept header is sent (e.g.
+   * Stability AI's `Accept: image/*`); the adapter sends that header
+   * whenever this is 'binary'.
+   */
+  imageResponseFormat?: 'auto' | 'binary';
+  /** Default: true. Set to false when the model is already selected via imageEndpoint's {model} substitution and the API rejects (or ignores but shouldn't receive) a redundant `model` body field. */
+  imageIncludeModelInBody?: boolean;
 }
 
 export interface ProviderHealth {

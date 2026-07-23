@@ -225,110 +225,106 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
   /**
    * ROOT CAUSE FIX (verified against each provider's own docs, July 2026):
    * this used to POST { model, prompt, width, height } straight to the
-   * provider's bare baseUrl with no path suffix, for every provider routed
-   * through this adapter. That request shape/endpoint doesn't match ANY
-   * real image API:
-   *   - OpenRouter has no root-level image endpoint at all — only
-   *     /chat/completions (image-capable models via modalities:
-   *     ['image','text']) and, since its June 2026 Unified Image API
-   *     launch, a dedicated OpenAI-shaped POST /images/generations.
-   *   - Cloudflare Workers AI selects the model via the URL path
-   *     (".../ai/run/{model}"), not a body field — baseUrl already ends
-   *     at ".../ai/run".
-   *   - Stability AI's v2beta endpoints are multipart/form-data POSTs to
-   *     a task-specific subpath (".../stable-image/generate/core"), not
-   *     JSON posted to the bare v2beta root, and they return raw image
-   *     bytes directly when Accept: image/* is set.
-   * Every real generation call through this adapter was silently 404ing
-   * (or worse) before ever reaching a real model. This never showed up as
-   * a "broken" provider in Keys & Providers because testNonChatConnection()
-   * deliberately only does a cheap GET reachability check, not a real
-   * generation — see that method's own comment for why. The app would
-   * just quietly fall through to the next provider in the fallback chain
-   * every single time, without ever surfacing that the higher-priority
-   * provider was failing.
+   * provider's bare baseUrl with no path suffix, for EVERY provider routed
+   * through this adapter — a shape/endpoint that doesn't match any real
+   * image API. This never showed up as a "broken" provider in Keys &
+   * Providers because testNonChatConnection() only does a cheap GET
+   * reachability check, not a real generation — the app just silently
+   * fell through to the next provider in the fallback chain every time.
+   *
+   * Rather than special-casing each provider by id/name in code (which
+   * breaks the moment someone adds a new preset or their own custom
+   * OpenAI-compatible image provider), the request shape is entirely
+   * data-driven from four optional ProviderConfig fields — see their doc
+   * comments in types.ts — with defaults that match the plain OpenAI
+   * /images/generations contract most of these APIs already speak. A
+   * provider only needs to set imageEndpoint/imageRequestFormat/etc. when
+   * its API genuinely deviates from that default (Cloudflare's
+   * model-in-path routing, Stability's multipart+binary v2beta endpoints —
+   * both expressed purely as config in defaultProviders.ts, not as an
+   * if-branch here).
    */
   async callImage(provider: ProviderConfig, input: any, options?: any): Promise<string> {
     const prompt = input?.prompt ?? input;
     if (!prompt) throw new Error('Image generation requires a prompt.');
 
-    if (provider.id === 'preset-stability-ai') {
-      return this.callImageStability(provider, prompt, options);
-    }
-
-    if (provider.id === 'preset-cloudflare-flux') {
-      const model = options?.model || provider.defaultModel || 'default';
-      return this.callImageOpenAIShape(provider, this.url(provider, `/${model}`), {
-        prompt,
-        width: options?.width,
-        height: options?.height,
-      }, options?.signal);
-    }
-
-    // OpenRouter, and by default any other OpenAI-compatible image
-    // preset/custom provider (Together, DeepInfra, Novita, etc., or a
-    // user-added custom provider of type 'image'), speaks the standard
-    // OpenAI-shaped POST /images/generations. This is also the shape the
-    // response parsing below (json.data[0].b64_json / .url) was already
-    // written for — it was just being sent to the wrong URL.
     const model = options?.model || provider.defaultModel || 'default';
-    const size = options?.width ? `${options.width}x${options.height || options.width}` : undefined;
-    return this.callImageOpenAIShape(provider, this.url(provider, '/images/generations'), {
-      model,
-      prompt,
-      ...(size ? { size } : {}),
-    }, options?.signal);
-  }
+    const endpointPath = (provider.imageEndpoint ?? '/images/generations').replace('{model}', encodeURIComponent(model));
+    const endpoint = this.url(provider, endpointPath);
 
-  private async callImageOpenAIShape(provider: ProviderConfig, url: string, body: any, signal?: AbortSignal): Promise<string> {
-    const response = await this.request(provider, url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }, signal);
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.startsWith('image/')) {
-      const blob = await response.blob();
-      return URL.createObjectURL(blob);
+    if (provider.imageRequestFormat === 'multipart') {
+      return this.callImageMultipart(provider, endpoint, model, prompt, options);
     }
-    const json = await response.json();
-    const candidate = json.data?.[0] || json.images?.[0] || json.output?.[0] || json;
-    if (typeof candidate === 'string' && candidate.startsWith('http')) return candidate;
-    if (candidate?.url) return candidate.url;
-    if (candidate?.b64_json) return 'data:image/png;base64,' + candidate.b64_json;
-    // Covers OpenRouter image-capable chat models (e.g.
-    // google/gemini-2.5-flash-image) reached via /chat/completions with
-    // modalities:['image','text'] instead of /images/generations — the
-    // image comes back inside choices[0].message.images rather than
-    // data[]. Kept here (not a special case above) so any future model
-    // that returns this shape "just works" without touching this adapter.
-    const chatImage = json.choices?.[0]?.message?.images?.[0];
-    const chatImageUrl = chatImage?.image_url?.url || chatImage?.url;
-    if (chatImageUrl) return chatImageUrl;
-    throw new Error(`unrecognized image response shape from ${provider.name}`);
+
+    const size = options?.width ? `${options.width}x${options.height || options.width}` : undefined;
+    const body: Record<string, any> = { prompt, width: options?.width, height: options?.height };
+    if (size) body.size = size;
+    if (provider.imageIncludeModelInBody !== false) body.model = model;
+    if (options?.seed !== undefined) body.seed = options.seed;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (provider.imageResponseFormat === 'binary') headers['Accept'] = 'image/*';
+
+    const response = await this.request(provider, endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    }, options?.signal);
+    return this.parseImageResponse(response, provider);
   }
 
-  /**
-   * Stability AI's v2beta Stable Image endpoints (core/ultra/sd3) require
-   * multipart/form-data, a task-specific subpath, and an Accept: image/*
-   * header to get raw image bytes back instead of a base64 JSON envelope —
-   * none of which the generic JSON/bare-root path above can produce.
-   */
-  private async callImageStability(provider: ProviderConfig, prompt: string, options?: any): Promise<string> {
+  /** multipart/form-data variant of the request above — same field set, just form-encoded instead of JSON. Used when provider.imageRequestFormat === 'multipart' (e.g. Stability AI's v2beta endpoints). */
+  private async callImageMultipart(provider: ProviderConfig, endpoint: string, model: string, prompt: string, options?: any): Promise<string> {
     const form = new FormData();
     form.append('prompt', prompt);
     form.append('output_format', 'png');
-    if (options?.seed) form.append('seed', String(options.seed));
-    const engine = (provider.defaultModel || 'stable-image-core').replace(/^stable-image-/, '');
-    const endpoint = this.url(provider, `/stable-image/generate/${engine}`);
-    const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, endpoint, { Accept: 'image/*' });
+    if (provider.imageIncludeModelInBody !== false) form.append('model', model);
+    if (options?.width) form.append('width', String(options.width));
+    if (options?.height) form.append('height', String(options.height));
+    if (options?.seed !== undefined) form.append('seed', String(options.seed));
+
+    const headers: Record<string, string> = {};
+    if (provider.imageResponseFormat === 'binary') headers['Accept'] = 'image/*';
+    const { url: finalUrl, headers: finalHeaders } = this.buildAuth(provider, endpoint, headers);
     const response = await this.fetchWithRetry(finalUrl, { method: 'POST', headers: finalHeaders, body: form }, provider, undefined, options?.signal);
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
     }
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
+    return this.parseImageResponse(response, provider);
+  }
+
+  /** Shared response parsing for both request formats above — handles raw-bytes responses (any image/* Content-Type, or whenever imageResponseFormat is 'binary') plus every JSON envelope shape seen across OpenAI-compatible, OpenRouter, and chat-completions-based image APIs. */
+  private async parseImageResponse(response: Response, provider: ProviderConfig): Promise<string> {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.startsWith('image/') || provider.imageResponseFormat === 'binary') {
+      const blob = await response.blob();
+      if (blob.type.startsWith('image/') || provider.imageResponseFormat === 'binary') {
+        return URL.createObjectURL(blob);
+      }
+      // Declared binary but the body wasn't actually an image (e.g. a JSON
+      // error payload sent with an image/* Accept header) — fall through
+      // and try to parse it as JSON instead of returning a broken blob.
+      const text = await blob.text();
+      return this.extractImageFromJson(JSON.parse(text), provider);
+    }
+    const json = await response.json();
+    return this.extractImageFromJson(json, provider);
+  }
+
+  private extractImageFromJson(json: any, provider: ProviderConfig): string {
+    const candidate = json.data?.[0] || json.images?.[0] || json.output?.[0] || json;
+    if (typeof candidate === 'string' && candidate.startsWith('http')) return candidate;
+    if (candidate?.url) return candidate.url;
+    if (candidate?.b64_json) return 'data:image/png;base64,' + candidate.b64_json;
+    // Covers image-capable chat models (e.g. OpenRouter's
+    // google/gemini-2.5-flash-image) reached via /chat/completions with
+    // modalities:['image','text'] — the image comes back inside
+    // choices[0].message.images rather than data[]/images[]/output[].
+    const chatImage = json.choices?.[0]?.message?.images?.[0];
+    const chatImageUrl = chatImage?.image_url?.url || chatImage?.url;
+    if (chatImageUrl) return chatImageUrl;
+    throw new Error(`unrecognized image response shape from ${provider.name}`);
   }
 
   async callVideo(provider: ProviderConfig, input: any, options?: any): Promise<{ url: string; isFallback: boolean }> {
