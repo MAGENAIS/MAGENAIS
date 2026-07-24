@@ -1,10 +1,21 @@
 import { Mode } from './Mode';
-import { NODE_PRIMARY_INPUT_KEY } from '../../workflows/nodeInputKeys';
 import { stripMarkdownForSpeech } from '../../core/textUtils';
+import { AgentPipeline, AgentPlanStep, AgentRunSummary } from '../../workflows/AgentPipeline';
+import { Persistence } from '../../core/state/Persistence';
 
 export class AgentsMode extends Mode {
   private personas: any[] = [];
   private pipelineSteps: any[] = [];
+  private goal: string = '';
+  private optimizePrompts: boolean = true;
+  private reflectEnabled: boolean = true;
+  private agentPipeline!: AgentPipeline;
+  // Own namespaced blob, same read-merge-write pattern as ProviderManager/Store
+  // (see Persistence.ts) — reuses the existing storage system rather than
+  // inventing a new one. Previously this mode's saveState()/loadState() were
+  // stubs (personas and pipeline steps vanished on every reload); this is
+  // also the bug fix for that.
+  private persistence = new Persistence({ type: 'localStorage', namespace: 'magenais:agents-mode' });
 
   activate(): void {
     this.renderControl(`
@@ -52,12 +63,27 @@ export class AgentsMode extends Mode {
         <p class="hint">Personas are reusable instruction-sets for pipeline steps.</p>
       </div>
       <div id="pipelinePanel">
+        <details class="adv" open>
+          <summary>Goal → auto-plan</summary>
+          <div class="adv-body">
+            <div class="field">
+              <label class="field-label">Goal</label>
+              <textarea id="agentGoal" rows="2" placeholder="e.g. Research the pros and cons of remote work, then write a short summary">${this.escapeHtml(this.goal)}</textarea>
+            </div>
+            <button class="ghost-btn" id="autoPlanBtn" style="align-self:flex-start;">✦ Auto-plan steps</button>
+            <p class="hint">Generates an editable step-by-step plan below — nothing runs until you press Run Pipeline.</p>
+          </div>
+        </details>
         <div class="field">
           <label class="field-label">Pipeline steps</label>
           <div id="pipelineStepList" style="display:flex; flex-direction:column; gap:10px;"></div>
           <button class="ghost-btn" id="addPipelineStepBtn" style="align-self:flex-start; margin-top:6px;">+ Add step</button>
         </div>
         <p class="hint">Use <code>{{previous}}</code> to reference previous step output. Persona instructions are prepended.</p>
+        <div class="field-row">
+          <label class="hint" style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="optimizePromptsChk"> Optimize prompts before sending</label>
+          <label class="hint" style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="reflectChk"> Reflect on each step &amp; retry if needed</label>
+        </div>
         <button class="run-btn" id="runBtn">▸ Run Pipeline</button>
       </div>
     `);
@@ -73,8 +99,37 @@ export class AgentsMode extends Mode {
       });
     });
 
+    this.agentPipeline = new AgentPipeline(this.kernel);
+
     // Load personas and steps from state (or localStorage)
     this.loadState();
+
+    const optimizeChk = document.getElementById('optimizePromptsChk') as HTMLInputElement;
+    optimizeChk.checked = this.optimizePrompts;
+    optimizeChk.addEventListener('change', () => { this.optimizePrompts = optimizeChk.checked; this.saveState(); });
+
+    const reflectChk = document.getElementById('reflectChk') as HTMLInputElement;
+    reflectChk.checked = this.reflectEnabled;
+    reflectChk.addEventListener('change', () => { this.reflectEnabled = reflectChk.checked; this.saveState(); });
+
+    const goalInput = document.getElementById('agentGoal') as HTMLTextAreaElement;
+    goalInput.addEventListener('input', () => { this.goal = goalInput.value; this.saveState(); });
+
+    // Requirement 2 (Automatic Planning) + Requirement 5 (Tool Selection):
+    // turns the free-text goal into an editable step-by-step plan using the
+    // same step cards as manual editing — nothing runs until Run Pipeline.
+    document.getElementById('autoPlanBtn')?.addEventListener('click', () => this.runGuarded('autoPlanBtn', async () => {
+      const goal = goalInput.value.trim();
+      if (!goal) { alert('Describe a goal to auto-plan from first.'); return; }
+      this.appendLog(`Planning steps for: "${goal}"…`);
+      const plan = await this.agentPipeline.planFromGoal(goal, (msg, level) => this.appendLog(msg, level));
+      this.pipelineSteps = plan.steps.map((s: AgentPlanStep) => ({
+        id: s.id, modeType: s.modeType, promptTemplate: s.promptTemplate, personaId: '',
+      }));
+      this.saveState();
+      this.renderPipelineSteps();
+      this.appendLog(`Plan ready — ${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}. Review and edit below, then Run Pipeline.`);
+    }));
 
     // Persona save
     document.getElementById('savePersonaBtn')?.addEventListener('click', () => {
@@ -98,16 +153,43 @@ export class AgentsMode extends Mode {
 
     document.getElementById('runBtn')?.addEventListener('click', () => this.runGuarded('runBtn', () => this.handleGenerate()));
 
-    // Initial render
+    // Initial render (synchronous defaults — see loadState below for why
+    // this can't simply await the persisted state before first paint)
     this.renderPersonas();
     this.renderPipelineSteps();
+
+    // ROOT CAUSE FIX (bug discovered during this pass): saveState()/loadState()
+    // were both no-op stubs — personas and pipeline steps silently vanished on
+    // every reload despite the UI implying they were saved (the persona list
+    // even calls itself "Saved personas"). Persistence (see Persistence.ts,
+    // the same read/write pattern ProviderManager and Store already use) is
+    // async, so the synchronous defaults above still render immediately —
+    // this just overlays the persisted state on top once it's loaded, same
+    // as how a real page-load-then-hydrate flow works elsewhere in the app.
+    this.persistence.load().then((saved: any) => {
+      if (!saved) return;
+      if (Array.isArray(saved.personas)) this.personas = saved.personas;
+      if (Array.isArray(saved.pipelineSteps) && saved.pipelineSteps.length) this.pipelineSteps = saved.pipelineSteps;
+      if (typeof saved.goal === 'string') this.goal = saved.goal;
+      if (typeof saved.optimizePrompts === 'boolean') this.optimizePrompts = saved.optimizePrompts;
+      if (typeof saved.reflectEnabled === 'boolean') this.reflectEnabled = saved.reflectEnabled;
+
+      const goalInput = document.getElementById('agentGoal') as HTMLTextAreaElement | null;
+      if (goalInput) goalInput.value = this.goal;
+      const optimizeChk = document.getElementById('optimizePromptsChk') as HTMLInputElement | null;
+      if (optimizeChk) optimizeChk.checked = this.optimizePrompts;
+      const reflectChk = document.getElementById('reflectChk') as HTMLInputElement | null;
+      if (reflectChk) reflectChk.checked = this.reflectEnabled;
+
+      this.renderPersonas();
+      this.renderPipelineSteps();
+    }).catch(() => { /* best-effort — defaults from loadState() above still stand */ });
   }
 
   private loadState(): void {
-    // In a real implementation, load from store (e.g., kernel.getStore())
-    // For now we use a simple in-memory array
+    // Synchronous defaults, shown immediately while the real persisted
+    // state (if any) loads asynchronously — see the .then() block above.
     if (!this.personas.length) {
-      // default example
       this.personas = [];
       // ROOT CAUSE of "prompt box already has example text in it when the tab
       // opens": this seeded the step's actual promptTemplate value (not just
@@ -122,7 +204,13 @@ export class AgentsMode extends Mode {
   }
 
   private saveState(): void {
-    // Save to store if needed
+    this.persistence.save({
+      personas: this.personas,
+      pipelineSteps: this.pipelineSteps,
+      goal: this.goal,
+      optimizePrompts: this.optimizePrompts,
+      reflectEnabled: this.reflectEnabled,
+    }).catch(() => { /* Persistence.save already handles/logs its own failure modes */ });
   }
 
   private renderPersonas(): void {
@@ -246,63 +334,50 @@ export class AgentsMode extends Mode {
     if (stage) this.renderLoading('Running pipeline...');
 
     try {
-      // Build a workflow that executes the pipeline sequentially
-      // We'll use the workflow engine's ability to chain nodes.
-      // For simplicity, we'll create a single workflow with all steps as separate nodes, connected in series.
-      const graph = {
-        nodes: this.pipelineSteps.map((step, idx) => {
-          const nodeId = step.id || 'step-' + idx;
-          const prevId = idx > 0 ? (this.pipelineSteps[idx - 1].id || 'step-' + (idx - 1)) : null;
-          // ROOT CAUSE (reported: Agents tab shows no real result): the
-          // step-editor UI explicitly tells users to type "{{previous}}"
-          // to reference the prior step's output (see renderPipelineSteps'
-          // placeholder text/label above) — but this builder used to send
-          // step.promptTemplate to the LLM completely verbatim, so
-          // "{{previous}}" was never substituted with anything; the model
-          // just saw the literal text "{{previous}}". Translating it into
-          // the engine's own `${nodeId}` reference syntax (now supported
-          // even embedded inside a larger string — see
-          // GraphUtils.resolveInputs) makes the documented placeholder
-          // actually work.
-          const promptWithRefs = prevId
-            ? step.promptTemplate.replace(/\{\{\s*previous\s*\}\}/gi, `\${${prevId}}`)
-            : step.promptTemplate;
-          const inputKey = NODE_PRIMARY_INPUT_KEY[step.modeType as import('../../workflows/types').NodeType] || 'prompt';
-          return {
-            id: nodeId,
-            type: step.modeType as any,
-            label: `Step ${idx + 1}`,
-            config: { model: 'openai', temp: 0.7 },
-            inputs: { [inputKey]: promptWithRefs },
-            enabled: true,
-          };
-        }),
-        edges: this.pipelineSteps.slice(1).map((step, idx) => ({
-          from: this.pipelineSteps[idx].id || 'step-' + idx,
-          to: step.id || 'step-' + (idx+1),
-        })),
-      };
-      const workflow = {
-        id: 'pipe-' + Date.now(),
-        name: 'Pipeline',
-        graph,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      const result = await this.kernel.getWorkflowEngine().execute(workflow, {}, (msg, level) => this.appendLog(msg, level));
-      // Display results
+      // Requirement 9 ("avoid duplicate logic"): both manually-authored and
+      // auto-planned pipelines run through the same AgentPipeline.runSteps —
+      // it builds/executes one single-node workflow per step (reusing the
+      // real WorkflowEngine + NodeRegistry executors exactly as before) and
+      // additionally handles {{previous}} substitution, prompt optimization,
+      // reflection-driven retry, and skip/continue between steps.
+      const planSteps: AgentPlanStep[] = this.pipelineSteps.map((step, idx) => ({
+        id: step.id || 'step-' + idx,
+        title: `Step ${idx + 1}`,
+        modeType: step.modeType,
+        promptTemplate: step.promptTemplate,
+        personaId: step.personaId || undefined,
+      }));
+      const { nodeResults, summary } = await this.agentPipeline.runSteps({
+        goal: this.goal || planSteps[0]?.promptTemplate || '',
+        steps: planSteps,
+        personas: this.personas,
+        optimizePrompts: this.optimizePrompts,
+        reflect: this.reflectEnabled,
+        log: (msg, level) => this.appendLog(msg, level),
+      });
+
+      // Display results — same rendering shape as before (status/output per
+      // step), plus a bit of new context (attempts, provider, reflection).
       let html = '';
-      result.nodeResults.forEach((nr, idx) => {
+      nodeResults.forEach((nr, idx) => {
         const step = this.pipelineSteps[idx];
-        const personaLabel = step.personaId ? ' (' + (this.personas.find(p=>p.id===step.personaId)?.name || '') + ')' : '';
+        const personaLabel = step?.personaId ? ' (' + (this.personas.find(p => p.id === step.personaId)?.name || '') + ')' : '';
+        const meta: string[] = [];
+        if (nr.attempts > 1) meta.push(`${nr.attempts} attempts`);
+        if (nr.providerUsed) meta.push(this.escapeHtml(nr.providerUsed));
+        if (nr.reflection && !nr.reflection.acceptable) meta.push('reflection: needs review');
+        const metaLabel = meta.length ? ` <span style="color:var(--ink-faint); font-weight:400;">(${meta.join(', ')})</span>` : '';
+
         let body: string;
         let readAloudText: string | null = null;
-        if (nr.status === 'failed') {
+        if (nr.status === 'skipped') {
+          body = `<div class="result-text" style="color:var(--ink-faint);">Skipped — ${this.escapeHtml(nr.error || 'no input available.')}</div>`;
+        } else if (nr.status === 'failed') {
           const div = document.createElement('div');
           div.textContent = nr.error || 'unknown error';
           body = `<div class="result-text" style="color:var(--rust);">Failed: ${div.innerHTML}</div>`;
         } else if (typeof nr.output === 'string' && nr.output.startsWith('blob:')) {
-          body = step.modeType === 'image'
+          body = nr.modeType === 'image'
             ? `<div class="result-media"><img src="${nr.output}" style="max-height:220px; border-radius:var(--radius);"></div>`
             : `<div class="result-media"><audio src="${nr.output}" controls></audio></div>`;
         } else {
@@ -327,17 +402,40 @@ export class AgentsMode extends Mode {
           }
         }
         html += `<div class="doc-summary-block" style="margin-bottom:16px;">
-          <p class="field-label" style="margin-bottom:6px;">Step ${idx+1} — ${step.modeType}${personaLabel}</p>
+          <p class="field-label" style="margin-bottom:6px;">Step ${idx + 1} — ${nr.modeType}${personaLabel}${metaLabel}</p>
           ${body}
           ${readAloudText ? this.renderReadAloudBlock(stripMarkdownForSpeech(readAloudText), `Read Step ${idx + 1} Aloud`) : ''}
         </div>`;
       });
+      html += this.renderExecutionSummary(summary);
       if (stage) stage.innerHTML = html;
       this.wireReadAloudControls();
       this.wireCodeCopyButtons(stage);
     } catch (err: any) {
       this.renderError(err);
     }
+  }
+
+  /** Requirement 8 (Execution Summary): a compact report shown after every
+   *  run — plan size, completed/skipped/failed counts, timing, which
+   *  providers actually served the steps, and the final result. Collapsed
+   *  by default (details/summary) so it doesn't compete with the actual
+   *  step output above it, matching this app's existing "report lives
+   *  below the result, closed unless it needs attention" convention (see
+   *  Mode.ts's #logDetails). */
+  private renderExecutionSummary(summary: AgentRunSummary): string {
+    const seconds = (summary.durationMs / 1000).toFixed(1);
+    const providerList = summary.providersUsed.length ? summary.providersUsed.map(p => this.escapeHtml(p)).join(', ') : 'n/a';
+    return `
+      <details class="adv" style="margin-top:4px;">
+        <summary>Execution summary — ${summary.completedSteps}/${summary.planSteps} steps completed in ${seconds}s</summary>
+        <div class="adv-body">
+          <p class="hint" style="margin:0 0 4px;"><b>Goal:</b> ${this.escapeHtml(summary.goal || '(none)')}</p>
+          <p class="hint" style="margin:0 0 4px;"><b>Plan:</b> ${summary.planSteps} step(s) — ${summary.completedSteps} completed, ${summary.skippedSteps} skipped, ${summary.failedSteps} failed</p>
+          <p class="hint" style="margin:0 0 4px;"><b>Duration:</b> ${seconds}s</p>
+          <p class="hint" style="margin:0;"><b>Provider(s) used:</b> ${providerList}</p>
+        </div>
+      </details>`;
   }
 
   deactivate(): void {
